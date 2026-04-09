@@ -1,5 +1,21 @@
 import { useState, useEffect } from "react";
 
+type EmotionPnlStat = {
+  total: number;
+  count: number;
+};
+
+type RazonStat = {
+  total: number;
+  count: number;
+};
+
+type BadgeProps = {
+  children: React.ReactNode;
+  subtle?: boolean;
+  customColor?: string;
+};
+
 const STORAGE_KEY = "mnq_trading_journal_v2";
 const DAILY_RISK_STORAGE_KEY = "mnq_daily_risk_v1";
 const EVALUATION_TARGET_STORAGE_KEY = "mnq_evaluation_target_v1";
@@ -179,6 +195,9 @@ const mensajesPorZona = {
     "🟢 Controla la emoción. Protege lo ganado.",
   ],
 };
+
+const emocionPnl: Record<string, EmotionPnlStat> = {};
+const razonStats: Record<string, RazonStat> = {};
 
 function getWeekStart(date) {
   const d = new Date(date);
@@ -547,25 +566,33 @@ export default function TradingJournal() {
   weekTrades.forEach((t) => {
     emocionCount[t.emocion] = (emocionCount[t.emocion] || 0) + 1;
   });
-  const topEmocion = Object.entries(emocionCount).sort(
-    (a, b) => b[1] - a[1]
-  )[0];
+const topEmocion = (Object.entries(emocionCount) as [string, number][])
+  .sort((a, b) => b[1] - a[1])[0];
 
-  const emocionPnl = {};
+const emocionRanking = (Object.entries(emocionPnl) as [string, EmotionPnlStat][])
+  .map(([em, data]) => ({
+    emocion: em,
+    avg: data.count ? data.total / data.count : 0,
+    total: data.total,
+    count: data.count,
+  }))
+  .sort((a, b) => b.avg - a.avg);
+
+const razonRanking = (Object.entries(razonStats) as [string, RazonStat][])
+  .map(([razon, data]) => ({
+    razon,
+    avg: data.count ? data.total / data.count : 0,
+    total: data.total,
+    count: data.count,
+  }))
+  .sort((a, b) => b.avg - a.avg);
+
   trades.forEach((t) => {
     if (!emocionPnl[t.emocion]) emocionPnl[t.emocion] = { total: 0, count: 0 };
     emocionPnl[t.emocion].total += t.pnl;
     emocionPnl[t.emocion].count += 1;
   });
 
-  const emocionRanking = Object.entries(emocionPnl)
-    .map(([em, data]) => ({
-      emocion: em,
-      avg: data.total / data.count,
-      total: data.total,
-      count: data.count,
-    }))
-    .sort((a, b) => b.avg - a.avg);
 
   const mejorEmocion = emocionRanking[0];
   const peorEmocion = emocionRanking[emocionRanking.length - 1];
@@ -584,7 +611,6 @@ export default function TradingJournal() {
     .filter((t) => t.seguiPlan === "no")
     .reduce((a, b) => a + b.pnl, 0);
 
-  const razonStats = {};
   trades.forEach((t) => {
     if (!t.razon) return;
     if (!razonStats[t.razon]) {
@@ -593,15 +619,6 @@ export default function TradingJournal() {
     razonStats[t.razon].total += t.pnl;
     razonStats[t.razon].count += 1;
   });
-
-  const razonRanking = Object.entries(razonStats)
-    .map(([razon, data]) => ({
-      razon,
-      avg: data.total / data.count,
-      total: data.total,
-      count: data.count,
-    }))
-    .sort((a, b) => b.avg - a.avg);
 
   const mejorSetup = razonRanking[0];
   const peorSetup = razonRanking[razonRanking.length - 1];
@@ -3443,23 +3460,12 @@ function ChipButton({
   );
 }
 
-function Badge({ children, subtle, customColor }) {
+function Badge({ children, subtle = false, customColor }: BadgeProps) {
   return (
     <span
       style={{
-        display: "inline-flex",
-        alignItems: "center",
-        padding: "6px 10px",
-        borderRadius: "999px",
-        fontSize: "11px",
-        fontWeight: 700,
-        background: subtle
-          ? "rgba(255,255,255,0.04)"
-          : "rgba(255,255,255,0.06)",
-        border: `1px solid ${
-          customColor ? `${customColor}44` : "rgba(255,255,255,0.08)"
-        }`,
-        color: customColor || (subtle ? "#c8d0e0" : "#f5f7fb"),
+        color: customColor || "#cbd5e1",
+        opacity: subtle ? 0.85 : 1,
       }}
     >
       {children}

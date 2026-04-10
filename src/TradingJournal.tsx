@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { supabase } from "./lib/supabase";
 
 type EmotionPnlStat = {
   total: number;
@@ -16,7 +17,6 @@ type BadgeProps = {
   customColor?: string;
 };
 
-const STORAGE_KEY = "mnq_trading_journal_v2";
 const DAILY_RISK_STORAGE_KEY = "mnq_daily_risk_v1";
 const EVALUATION_TARGET_STORAGE_KEY = "mnq_evaluation_target_v1";
 const HABITS_STORAGE_KEY = "mnq_habits_v1";
@@ -271,7 +271,7 @@ function getRecoveryInfo(series) {
 
   const hadRed = firstHalf.some((i) => i.zona === "rojo");
   const recovered = secondHalf.every(
-    (i) => i.zona === "azul" || i.zona === "verde"
+    (i) => i.zona === "azul" || i.zona === "verde",
   );
 
   if (hadRed && recovered) {
@@ -323,10 +323,48 @@ export default function TradingJournal({ user }) {
   }, [trades]);
 
   useEffect(() => {
-    try {
-      const storedTrades = localStorage.getItem(STORAGE_KEY);
-      if (storedTrades) setTrades(JSON.parse(storedTrades));
-    } catch (e) {}
+    const loadTrades = async () => {
+      if (!user?.id) return;
+
+      const { data, error } = await supabase
+        .from("trades")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("Error cargando trades:", error.message);
+        return;
+      }
+
+      const mappedTrades = (data || []).map((t) => ({
+        id: t.id,
+        fecha: t.fecha,
+        sesion: t.sesion,
+        direccion: t.direccion,
+        entrada: t.entrada ?? "",
+        salida: t.salida ?? "",
+        contratos: String(t.contratos ?? 1),
+        puntosPositivos:
+          t.puntos_positivos !== null && t.puntos_positivos !== undefined
+            ? String(t.puntos_positivos)
+            : "",
+        puntosNegativos:
+          t.puntos_negativos !== null && t.puntos_negativos !== undefined
+            ? String(t.puntos_negativos)
+            : "",
+        resultado: String(t.resultado ?? 0),
+        razon: t.razon ?? "",
+        emocion: t.emocion ?? "neutral",
+        seguiPlan: t.segui_plan ?? "si",
+        notas: t.notas ?? "",
+        pnl: Number(t.pnl ?? t.resultado ?? 0),
+      }));
+
+      setTrades(mappedTrades);
+    };
+
+    loadTrades();
 
     try {
       const storedRisk = localStorage.getItem(DAILY_RISK_STORAGE_KEY);
@@ -347,13 +385,10 @@ export default function TradingJournal({ user }) {
       const storedHabits = localStorage.getItem(HABITS_STORAGE_KEY);
       if (storedHabits) setHabits(JSON.parse(storedHabits));
     } catch (e) {}
-  }, []);
+  }, [user?.id]);
 
   const guardar = (nuevos) => {
     setTrades(nuevos);
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(nuevos));
-    } catch (e) {}
   };
 
   const guardarRiesgoPorDia = (riskMap) => {
@@ -411,7 +446,7 @@ export default function TradingJournal({ user }) {
     const neg = Math.max(0, parseFloat(negativos || "0") || 0);
     const cont = Math.min(
       100,
-      Math.max(1, parseInt(contratos || "1", 10) || 1)
+      Math.max(1, parseInt(contratos || "1", 10) || 1),
     );
     return (pos - neg) * cont * 2;
   };
@@ -435,8 +470,8 @@ export default function TradingJournal({ user }) {
           calcularResultadoPorPuntos(
             next.puntosPositivos,
             next.puntosNegativos,
-            next.contratos
-          )
+            next.contratos,
+          ),
         );
       }
 
@@ -462,8 +497,8 @@ export default function TradingJournal({ user }) {
           calcularResultadoPorPuntos(
             next.puntosPositivos,
             next.puntosNegativos,
-            next.contratos
-          )
+            next.contratos,
+          ),
         );
       }
 
@@ -484,7 +519,7 @@ export default function TradingJournal({ user }) {
 
   const barraRiesgo = Math.min(
     (Math.abs(Math.min(pnlHoy, 0)) / riesgoBaseHoy) * 100,
-    100
+    100,
   );
 
   const riesgoPorTrade = Math.round(riesgoBaseHoy * 0.25);
@@ -499,12 +534,16 @@ export default function TradingJournal({ user }) {
     }
   }, [pnlHoy, riesgoBaseHoy]);
 
-  const agregarTrade = () => {
+  const agregarTrade = async () => {
     if (semaforo === "rojo") return;
+    if (!user?.id) {
+      alert("No hay usuario autenticado.");
+      return;
+    }
 
     const contratosNum = Math.min(
       100,
-      Math.max(1, parseInt(form.contratos || "1", 10) || 1)
+      Math.max(1, parseInt(form.contratos || "1", 10) || 1),
     );
 
     const puntosPos = Math.max(0, parseFloat(form.puntosPositivos || "0") || 0);
@@ -520,18 +559,64 @@ export default function TradingJournal({ user }) {
     if (!hayPuntos && !tienePrecios && !form.resultado) return;
     if (!hayPuntos && !form.resultado) return;
 
-    const nuevo = {
-      ...form,
-      contratos: String(contratosNum),
-      puntosPositivos: puntosPos ? String(puntosPos) : "",
-      puntosNegativos: puntosNeg ? String(puntosNeg) : "",
-      resultado: String(resultadoCalculado),
-      id: Date.now(),
+    const tradePayload = {
+      user_id: user.id,
+      fecha: form.fecha,
+      sesion: form.sesion,
+      direccion: form.direccion,
+      entrada: form.entrada === "" ? null : Number(form.entrada),
+      salida: form.salida === "" ? null : Number(form.salida),
+      contratos: contratosNum,
+      puntos_positivos: puntosPos,
+      puntos_negativos: puntosNeg,
+      resultado: resultadoCalculado,
       pnl: resultadoCalculado,
+      razon: form.razon || null,
+      emocion: form.emocion,
+      segui_plan: form.seguiPlan,
+      notas: form.notas || null,
     };
 
-    const nuevos = [nuevo, ...trades];
-    guardar(nuevos);
+    const { data, error } = await supabase
+      .from("trades")
+      .insert(tradePayload)
+      .select()
+      .single();
+
+    console.log("tradePayload:", tradePayload);
+    console.log("supabase error:", error);
+    console.log("supabase data:", data);
+    if (error) {
+      console.error("Error guardando trade:", error.message);
+      alert("No se pudo guardar el trade.");
+      return;
+    }
+
+    const nuevo = {
+      id: data.id,
+      fecha: data.fecha,
+      sesion: data.sesion,
+      direccion: data.direccion,
+      entrada: data.entrada ?? "",
+      salida: data.salida ?? "",
+      contratos: String(data.contratos ?? 1),
+      puntosPositivos:
+        data.puntos_positivos !== null && data.puntos_positivos !== undefined
+          ? String(data.puntos_positivos)
+          : "",
+      puntosNegativos:
+        data.puntos_negativos !== null && data.puntos_negativos !== undefined
+          ? String(data.puntos_negativos)
+          : "",
+      resultado: String(data.resultado ?? 0),
+      razon: data.razon ?? "",
+      emocion: data.emocion ?? "neutral",
+      seguiPlan: data.segui_plan ?? "si",
+      notas: data.notas ?? "",
+      pnl: Number(data.pnl ?? data.resultado ?? 0),
+    };
+
+    setTrades((prev) => [nuevo, ...prev]);
     setForm({ ...defaultForm, fecha: form.fecha });
     setGuardado(true);
     setTimeout(() => setGuardado(false), 1800);
@@ -539,16 +624,25 @@ export default function TradingJournal({ user }) {
     if (form.seguiPlan === "no") {
       setTimeout(() => {
         alert(
-          "⚠️ Ojo: este trade quedó marcado como fuera del plan. Revísalo."
+          "⚠️ Ojo: este trade quedó marcado como fuera del plan. Revísalo.",
         );
       }, 120);
     }
   };
 
-  const eliminar = (id) => guardar(trades.filter((t) => t.id !== id));
+  const eliminar = async (id) => {
+    const { error } = await supabase.from("trades").delete().eq("id", id);
 
+    if (error) {
+      console.error("Error eliminando trade:", error.message);
+      alert("No se pudo eliminar el trade.");
+      return;
+    }
+
+    setTrades((prev) => prev.filter((t) => t.id !== id));
+  };
   const weekTrades = trades.filter(
-    (t) => getWeekStart(t.fecha) === selectedWeek
+    (t) => getWeekStart(t.fecha) === selectedWeek,
   );
   const weekPnl = weekTrades.reduce((a, b) => a + b.pnl, 0);
   const weekWinners = weekTrades.filter((t) => t.pnl > 0).length;
@@ -566,33 +660,35 @@ export default function TradingJournal({ user }) {
   weekTrades.forEach((t) => {
     emocionCount[t.emocion] = (emocionCount[t.emocion] || 0) + 1;
   });
-const topEmocion = (Object.entries(emocionCount) as [string, number][])
-  .sort((a, b) => b[1] - a[1])[0];
+  const topEmocion = (Object.entries(emocionCount) as [string, number][]).sort(
+    (a, b) => b[1] - a[1],
+  )[0];
 
-const emocionRanking = (Object.entries(emocionPnl) as [string, EmotionPnlStat][])
-  .map(([em, data]) => ({
-    emocion: em,
-    avg: data.count ? data.total / data.count : 0,
-    total: data.total,
-    count: data.count,
-  }))
-  .sort((a, b) => b.avg - a.avg);
+  const emocionRanking = (
+    Object.entries(emocionPnl) as [string, EmotionPnlStat][]
+  )
+    .map(([em, data]) => ({
+      emocion: em,
+      avg: data.count ? data.total / data.count : 0,
+      total: data.total,
+      count: data.count,
+    }))
+    .sort((a, b) => b.avg - a.avg);
 
-const razonRanking = (Object.entries(razonStats) as [string, RazonStat][])
-  .map(([razon, data]) => ({
-    razon,
-    avg: data.count ? data.total / data.count : 0,
-    total: data.total,
-    count: data.count,
-  }))
-  .sort((a, b) => b.avg - a.avg);
+  const razonRanking = (Object.entries(razonStats) as [string, RazonStat][])
+    .map(([razon, data]) => ({
+      razon,
+      avg: data.count ? data.total / data.count : 0,
+      total: data.total,
+      count: data.count,
+    }))
+    .sort((a, b) => b.avg - a.avg);
 
   trades.forEach((t) => {
     if (!emocionPnl[t.emocion]) emocionPnl[t.emocion] = { total: 0, count: 0 };
     emocionPnl[t.emocion].total += t.pnl;
     emocionPnl[t.emocion].count += 1;
   });
-
 
   const mejorEmocion = emocionRanking[0];
   const peorEmocion = emocionRanking[emocionRanking.length - 1];
@@ -678,7 +774,7 @@ const razonRanking = (Object.entries(razonStats) as [string, RazonStat][])
   const analizarConIA = async () => {
     if (trades.length < 3) {
       setAiAnalysis(
-        "Necesitas al menos 3 trades registrados para obtener un análisis. ¡Sigue operando y vuelve aquí!"
+        "Necesitas al menos 3 trades registrados para obtener un análisis. ¡Sigue operando y vuelve aquí!",
       );
       return;
     }
@@ -694,15 +790,15 @@ const razonRanking = (Object.entries(razonStats) as [string, RazonStat][])
             t.sesion === "new-york"
               ? "New York"
               : t.sesion === "asia"
-              ? "Asia"
-              : t.sesion
+                ? "Asia"
+                : t.sesion
           } | ${t.direccion.toUpperCase()} | Resultado: $${t.pnl} | Emoción: ${
             t.emocion
           } | Zona: ${getEmotionZone(t.emocion)} | Razón: ${
             t.razon
           } | Siguió plan: ${t.seguiPlan} | Contratos: ${
             t.contratos
-          } | Notas: ${t.notas}`
+          } | Notas: ${t.notas}`,
       )
       .join("\n");
 
@@ -776,7 +872,7 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
       setAiAnalysis(text);
     } catch (err) {
       setAiAnalysis(
-        "Error al conectar con el análisis. Verifica tu conexión e inténtalo de nuevo."
+        "Error al conectar con el análisis. Verifica tu conexión e inténtalo de nuevo.",
       );
     }
 
@@ -1044,8 +1140,8 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
               semaforo === "verde"
                 ? "rgba(34,197,94,0.22)"
                 : semaforo === "amarillo"
-                ? "rgba(250,204,21,0.22)"
-                : "rgba(239,68,68,0.22)"
+                  ? "rgba(250,204,21,0.22)"
+                  : "rgba(239,68,68,0.22)"
             }`,
           }}
         >
@@ -1277,8 +1373,8 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                   barraRiesgo < 50
                     ? "linear-gradient(90deg, #22c55e, #22d3ee)"
                     : barraRiesgo < 80
-                    ? "linear-gradient(90deg, #facc15, #f59e0b)"
-                    : "linear-gradient(90deg, #ef4444, #fb7185)",
+                      ? "linear-gradient(90deg, #facc15, #f59e0b)"
+                      : "linear-gradient(90deg, #ef4444, #fb7185)",
               }}
             />
           </div>
@@ -1430,7 +1526,7 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                   onChange={(e) =>
                     actualizarPuntosYResultado(
                       "puntosPositivos",
-                      e.target.value
+                      e.target.value,
                     )
                   }
                   style={{ color: theme.green, fontWeight: 700 }}
@@ -1448,7 +1544,7 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                   onChange={(e) =>
                     actualizarPuntosYResultado(
                       "puntosNegativos",
-                      e.target.value
+                      e.target.value,
                     )
                   }
                   style={{ color: theme.red, fontWeight: 700 }}
@@ -1537,16 +1633,16 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                             title: "#ffb4b4",
                           }
                         : group.zone === "azul"
-                        ? {
-                            bg: "linear-gradient(135deg, rgba(56,189,248,0.10), rgba(56,189,248,0.03))",
-                            border: "rgba(56,189,248,0.20)",
-                            title: "#bfefff",
-                          }
-                        : {
-                            bg: "linear-gradient(135deg, rgba(34,197,94,0.10), rgba(34,197,94,0.03))",
-                            border: "rgba(34,197,94,0.20)",
-                            title: "#c9ffd9",
-                          };
+                          ? {
+                              bg: "linear-gradient(135deg, rgba(56,189,248,0.10), rgba(56,189,248,0.03))",
+                              border: "rgba(56,189,248,0.20)",
+                              title: "#bfefff",
+                            }
+                          : {
+                              bg: "linear-gradient(135deg, rgba(34,197,94,0.10), rgba(34,197,94,0.03))",
+                              border: "rgba(34,197,94,0.20)",
+                              title: "#c9ffd9",
+                            };
 
                     return (
                       <div
@@ -1602,15 +1698,15 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                                 group.zone === "rojo"
                                   ? "linear-gradient(135deg, rgba(239,68,68,0.22), rgba(239,68,68,0.10))"
                                   : group.zone === "azul"
-                                  ? "linear-gradient(135deg, rgba(56,189,248,0.22), rgba(56,189,248,0.10))"
-                                  : "linear-gradient(135deg, rgba(34,197,94,0.22), rgba(34,197,94,0.10))"
+                                    ? "linear-gradient(135deg, rgba(56,189,248,0.22), rgba(56,189,248,0.10))"
+                                    : "linear-gradient(135deg, rgba(34,197,94,0.22), rgba(34,197,94,0.10))"
                               }
                               activeBorder={
                                 group.zone === "rojo"
                                   ? "rgba(239,68,68,0.35)"
                                   : group.zone === "azul"
-                                  ? "rgba(56,189,248,0.35)"
-                                  : "rgba(34,197,94,0.35)"
+                                    ? "rgba(56,189,248,0.35)"
+                                    : "rgba(34,197,94,0.35)"
                               }
                               activeColor="#fff"
                               onClick={() => f({ emocion: emotion.key })}
@@ -1696,8 +1792,8 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                   semaforo === "rojo"
                     ? "linear-gradient(135deg, rgba(239,68,68,0.7), rgba(251,113,133,0.7))"
                     : guardado
-                    ? "linear-gradient(135deg, #22c55e, #34d399)"
-                    : "linear-gradient(135deg, #8b5cf6, #22d3ee)",
+                      ? "linear-gradient(135deg, #22c55e, #34d399)"
+                      : "linear-gradient(135deg, #8b5cf6, #22d3ee)",
                 color: "#fff",
                 border: "none",
                 borderRadius: "16px",
@@ -1710,15 +1806,15 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                   semaforo === "rojo"
                     ? "0 14px 34px rgba(239,68,68,0.22)"
                     : guardado
-                    ? "0 14px 34px rgba(34,197,94,0.2)"
-                    : "0 14px 34px rgba(124,58,237,0.24)",
+                      ? "0 14px 34px rgba(34,197,94,0.2)"
+                      : "0 14px 34px rgba(124,58,237,0.24)",
               }}
             >
               {semaforo === "rojo"
                 ? "🚫 DÍA BLOQUEADO"
                 : guardado
-                ? "✅ GUARDADO"
-                : "GUARDAR TRADE"}
+                  ? "✅ GUARDADO"
+                  : "GUARDAR TRADE"}
             </button>
           </div>
         )}
@@ -1763,8 +1859,8 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                           {t.sesion === "new-york"
                             ? "New York"
                             : t.sesion === "asia"
-                            ? "Asia"
-                            : t.sesion}
+                              ? "Asia"
+                              : t.sesion}
                         </Badge>
                         <Badge
                           customColor={
@@ -1965,14 +2061,14 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                         transition: "width 0.5s",
                         width: `${Math.min(
                           Math.max((weekPnl / 300) * 100, 0),
-                          100
+                          100,
                         )}%`,
                         background:
                           weekPnl >= 300
                             ? "linear-gradient(90deg, #22c55e, #22d3ee)"
                             : weekPnl >= 150
-                            ? "linear-gradient(90deg, #facc15, #f59e0b)"
-                            : "linear-gradient(90deg, #8b5cf6, #22d3ee)",
+                              ? "linear-gradient(90deg, #facc15, #f59e0b)"
+                              : "linear-gradient(90deg, #8b5cf6, #22d3ee)",
                       }}
                     />
                   </div>
@@ -1988,7 +2084,7 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                   >
                     <span style={{ fontSize: "12px", color: theme.textSoft }}>
                       {Math.round(
-                        Math.min(Math.max((weekPnl / 300) * 100, 0), 100)
+                        Math.min(Math.max((weekPnl / 300) * 100, 0), 100),
                       )}
                       % del objetivo
                     </span>
@@ -2126,7 +2222,7 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                               (Math.abs(s.pnl) /
                                 Math.max(Math.abs(weekPnl), 1)) *
                                 100,
-                              100
+                              100,
                             )}%`,
                             background:
                               s.pnl >= 0
@@ -2410,8 +2506,8 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                           habitsPercent >= 80
                             ? theme.green
                             : habitsPercent >= 50
-                            ? theme.yellow
-                            : theme.red,
+                              ? theme.yellow
+                              : theme.red,
                         fontFamily:
                           '"JetBrains Mono", "SFMono-Regular", Consolas, monospace',
                       }}
@@ -2449,8 +2545,8 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                         habitsPercent >= 80
                           ? "linear-gradient(90deg, #22c55e, #22d3ee)"
                           : habitsPercent >= 50
-                          ? "linear-gradient(90deg, #facc15, #f59e0b)"
-                          : "linear-gradient(90deg, #ef4444, #fb7185)",
+                            ? "linear-gradient(90deg, #facc15, #f59e0b)"
+                            : "linear-gradient(90deg, #ef4444, #fb7185)",
                     }}
                   />
                 </div>
@@ -2529,8 +2625,8 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                 {habitsPercent >= 80
                   ? "🔥 Vienes fuerte hoy. Buenas bases para una ejecución limpia."
                   : habitsPercent >= 50
-                  ? "⚠️ Vas medio bien, pero todavía puedes mejorar cómo llegas al mercado."
-                  : "💀 Ojo: tu base del día está floja. Hoy toca operar con mucha cabeza o no regalar dinero."}
+                    ? "⚠️ Vas medio bien, pero todavía puedes mejorar cómo llegas al mercado."
+                    : "💀 Ojo: tu base del día está floja. Hoy toca operar con mucha cabeza o no regalar dinero."}
               </div>
             </div>
           </div>
@@ -2641,7 +2737,7 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                         Object.entries(zonaCount).sort((a, b) => b[1] - a[1])[0]
                           ? zonaMeta[
                               Object.entries(zonaCount).sort(
-                                (a, b) => b[1] - a[1]
+                                (a, b) => b[1] - a[1],
                               )[0][0]
                             ].label
                           : "Sin datos"
@@ -2693,8 +2789,8 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                           psychRepeatedAlert === "rojo"
                             ? "linear-gradient(135deg, rgba(239,68,68,0.16), rgba(239,68,68,0.04))"
                             : psychRepeatedAlert === "verde"
-                            ? "linear-gradient(135deg, rgba(34,197,94,0.14), rgba(34,197,94,0.04))"
-                            : "linear-gradient(135deg, rgba(56,189,248,0.14), rgba(56,189,248,0.04))",
+                              ? "linear-gradient(135deg, rgba(34,197,94,0.14), rgba(34,197,94,0.04))"
+                              : "linear-gradient(135deg, rgba(56,189,248,0.14), rgba(56,189,248,0.04))",
                         border: `1px solid ${zonaMeta[psychRepeatedAlert].color}44`,
                       }}
                     >
@@ -3194,8 +3290,8 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                       habitsPercent >= 80
                         ? theme.green
                         : habitsPercent >= 50
-                        ? theme.yellow
-                        : theme.red,
+                          ? theme.yellow
+                          : theme.red,
                   }}
                 >
                   {habitsPercent}%
@@ -3220,8 +3316,8 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                       habitsPercent >= 80
                         ? "linear-gradient(90deg, #22c55e, #22d3ee)"
                         : habitsPercent >= 50
-                        ? "linear-gradient(90deg, #facc15, #f59e0b)"
-                        : "linear-gradient(90deg, #ef4444, #fb7185)",
+                          ? "linear-gradient(90deg, #facc15, #f59e0b)"
+                          : "linear-gradient(90deg, #ef4444, #fb7185)",
                   }}
                 />
               </div>
@@ -3236,8 +3332,8 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                 {habitsPercent >= 80
                   ? "🔥 Vienes bien calibrado hoy. Buena base mental y física."
                   : habitsPercent >= 50
-                  ? "⚠️ Tienes base media. Puedes operar, pero con más conciencia."
-                  : "💀 Tus hábitos hoy están flojos. No regales plata por llegar roto al mercado."}
+                    ? "⚠️ Tienes base media. Puedes operar, pero con más conciencia."
+                    : "💀 Tus hábitos hoy están flojos. No regales plata por llegar roto al mercado."}
               </div>
             </div>
 
@@ -3308,7 +3404,7 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                     transition: "width 0.5s",
                     width: `${Math.min(
                       Math.max((pnlTotal / evaluationTarget) * 100, 0),
-                      100
+                      100,
                     )}%`,
                     background: "linear-gradient(90deg, #8b5cf6, #22d3ee)",
                   }}
@@ -3337,8 +3433,8 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                   {Math.round(
                     Math.min(
                       Math.max((pnlTotal / evaluationTarget) * 100, 0),
-                      100
-                    )
+                      100,
+                    ),
                   )}
                   %
                 </span>
@@ -3802,8 +3898,8 @@ function EmotionChart({ series }) {
     averageZona === "rojo"
       ? "🔴 Descontrol"
       : averageZona === "verde"
-      ? "🟢 Euforia"
-      : "🔵 Claridad";
+        ? "🟢 Euforia"
+        : "🔵 Claridad";
 
   return (
     <div style={{ width: "100%", overflowX: "auto" }}>

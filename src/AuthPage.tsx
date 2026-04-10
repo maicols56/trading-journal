@@ -34,10 +34,8 @@ export default function AuthPage() {
 
   const title = useMemo(
     () =>
-      mode === "signin"
-        ? "Bienvenido de vuelta"
-        : "Crea tu cuenta de trader",
-    [mode]
+      mode === "signin" ? "Bienvenido de vuelta" : "Crea tu cuenta de trader",
+    [mode],
   );
 
   const subtitle = useMemo(
@@ -45,7 +43,7 @@ export default function AuthPage() {
       mode === "signin"
         ? "Entra a tu bitácora y sigue ejecutando con disciplina."
         : "Empieza a registrar tus trades, emociones y progreso en un entorno serio.",
-    [mode]
+    [mode],
   );
 
   const validate = () => {
@@ -69,29 +67,32 @@ export default function AuthPage() {
 
     return true;
   };
-
   const signUp = async () => {
     if (!validate()) return;
 
     setLoading(true);
     setErrorText("");
-    setMessage("");
 
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email: email.trim(),
       password,
     });
 
     setLoading(false);
 
+    // 🔴 ERROR real
     if (error) {
       setErrorText(error.message);
       return;
     }
 
-    setMessage(
-      "Cuenta creada. Revisa tu correo para confirmar el acceso si Supabase lo solicita."
-    );
+    // 🧠 AQUÍ está el truco
+    if (!data.session) {
+      setErrorText("Este correo ya está registrado. Intenta iniciar sesión.");
+      return;
+    }
+
+    alert("Cuenta creada correctamente");
   };
 
   const signIn = async () => {
@@ -124,9 +125,7 @@ export default function AuthPage() {
     }
   };
 
-  const handleKeyDown = async (
-    e: React.KeyboardEvent<HTMLInputElement>
-  ) => {
+  const handleKeyDown = async (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter") {
       await handleSubmit();
     }
@@ -171,13 +170,13 @@ export default function AuthPage() {
         minHeight: "100vh",
         display: "grid",
         gridTemplateColumns: "1.05fr 0.95fr",
-      background: `
+        background: `
   linear-gradient(rgba(5,6,10,0.90), rgba(7,8,13,0.3)),
   url(${bgGif})
 `,
-backgroundSize: "cover",
-backgroundPosition: "center",
-backgroundRepeat: "no-repeat",
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+        backgroundRepeat: "no-repeat",
         color: theme.text,
         fontFamily:
           'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
@@ -367,11 +366,9 @@ backgroundRepeat: "no-repeat",
                 fontStyle: "italic",
               }}
             >
-              
               <br />
-              
+
               <br />
-              
             </div>
           </div>
 
@@ -651,9 +648,7 @@ backgroundRepeat: "no-repeat",
               background: loading
                 ? "rgba(255,255,255,0.08)"
                 : "linear-gradient(135deg, #8b5cf6, #22d3ee)",
-              boxShadow: loading
-                ? "none"
-                : "0 14px 34px rgba(124,58,237,0.24)",
+              boxShadow: loading ? "none" : "0 14px 34px rgba(124,58,237,0.24)",
               transition: "all 0.2s ease",
               opacity: loading ? 0.7 : 1,
             }}
@@ -663,8 +658,8 @@ backgroundRepeat: "no-repeat",
                 ? "ENTRANDO..."
                 : "CREANDO CUENTA..."
               : mode === "signin"
-              ? "INICIAR SESIÓN"
-              : "CREAR CUENTA"}
+                ? "INICIAR SESIÓN"
+                : "CREAR CUENTA"}
           </button>
 
           <button

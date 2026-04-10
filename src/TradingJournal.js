@@ -11,7 +11,7 @@ var __rest = (this && this.__rest) || function (s, e) {
 };
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { useState, useEffect } from "react";
-const STORAGE_KEY = "mnq_trading_journal_v2";
+import { supabase } from "./lib/supabase";
 const DAILY_RISK_STORAGE_KEY = "mnq_daily_risk_v1";
 const EVALUATION_TARGET_STORAGE_KEY = "mnq_evaluation_target_v1";
 const HABITS_STORAGE_KEY = "mnq_habits_v1";
@@ -289,12 +289,45 @@ export default function TradingJournal({ user }) {
         setMensajeActual(random);
     }, [trades]);
     useEffect(() => {
-        try {
-            const storedTrades = localStorage.getItem(STORAGE_KEY);
-            if (storedTrades)
-                setTrades(JSON.parse(storedTrades));
-        }
-        catch (e) { }
+        const loadTrades = async () => {
+            if (!(user === null || user === void 0 ? void 0 : user.id))
+                return;
+            const { data, error } = await supabase
+                .from("trades")
+                .select("*")
+                .eq("user_id", user.id)
+                .order("created_at", { ascending: false });
+            if (error) {
+                console.error("Error cargando trades:", error.message);
+                return;
+            }
+            const mappedTrades = (data || []).map((t) => {
+                var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
+                return ({
+                    id: t.id,
+                    fecha: t.fecha,
+                    sesion: t.sesion,
+                    direccion: t.direccion,
+                    entrada: (_a = t.entrada) !== null && _a !== void 0 ? _a : "",
+                    salida: (_b = t.salida) !== null && _b !== void 0 ? _b : "",
+                    contratos: String((_c = t.contratos) !== null && _c !== void 0 ? _c : 1),
+                    puntosPositivos: t.puntos_positivos !== null && t.puntos_positivos !== undefined
+                        ? String(t.puntos_positivos)
+                        : "",
+                    puntosNegativos: t.puntos_negativos !== null && t.puntos_negativos !== undefined
+                        ? String(t.puntos_negativos)
+                        : "",
+                    resultado: String((_d = t.resultado) !== null && _d !== void 0 ? _d : 0),
+                    razon: (_e = t.razon) !== null && _e !== void 0 ? _e : "",
+                    emocion: (_f = t.emocion) !== null && _f !== void 0 ? _f : "neutral",
+                    seguiPlan: (_g = t.segui_plan) !== null && _g !== void 0 ? _g : "si",
+                    notas: (_h = t.notas) !== null && _h !== void 0 ? _h : "",
+                    pnl: Number((_k = (_j = t.pnl) !== null && _j !== void 0 ? _j : t.resultado) !== null && _k !== void 0 ? _k : 0),
+                });
+            });
+            setTrades(mappedTrades);
+        };
+        loadTrades();
         try {
             const storedRisk = localStorage.getItem(DAILY_RISK_STORAGE_KEY);
             if (storedRisk)
@@ -317,13 +350,9 @@ export default function TradingJournal({ user }) {
                 setHabits(JSON.parse(storedHabits));
         }
         catch (e) { }
-    }, []);
+    }, [user === null || user === void 0 ? void 0 : user.id]);
     const guardar = (nuevos) => {
         setTrades(nuevos);
-        try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(nuevos));
-        }
-        catch (e) { }
     };
     const guardarRiesgoPorDia = (riskMap) => {
         setDailyRisk(riskMap);
@@ -419,9 +448,14 @@ export default function TradingJournal({ user }) {
             setSemaforo("verde");
         }
     }, [pnlHoy, riesgoBaseHoy]);
-    const agregarTrade = () => {
+    const agregarTrade = async () => {
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
         if (semaforo === "rojo")
             return;
+        if (!(user === null || user === void 0 ? void 0 : user.id)) {
+            alert("No hay usuario autenticado.");
+            return;
+        }
         const contratosNum = Math.min(100, Math.max(1, parseInt(form.contratos || "1", 10) || 1));
         const puntosPos = Math.max(0, parseFloat(form.puntosPositivos || "0") || 0);
         const puntosNeg = Math.max(0, parseFloat(form.puntosNegativos || "0") || 0);
@@ -434,9 +468,58 @@ export default function TradingJournal({ user }) {
             return;
         if (!hayPuntos && !form.resultado)
             return;
-        const nuevo = Object.assign(Object.assign({}, form), { contratos: String(contratosNum), puntosPositivos: puntosPos ? String(puntosPos) : "", puntosNegativos: puntosNeg ? String(puntosNeg) : "", resultado: String(resultadoCalculado), id: Date.now(), pnl: resultadoCalculado });
-        const nuevos = [nuevo, ...trades];
-        guardar(nuevos);
+        const tradePayload = {
+            user_id: user.id,
+            fecha: form.fecha,
+            sesion: form.sesion,
+            direccion: form.direccion,
+            entrada: form.entrada === "" ? null : Number(form.entrada),
+            salida: form.salida === "" ? null : Number(form.salida),
+            contratos: contratosNum,
+            puntos_positivos: puntosPos,
+            puntos_negativos: puntosNeg,
+            resultado: resultadoCalculado,
+            pnl: resultadoCalculado,
+            razon: form.razon || null,
+            emocion: form.emocion,
+            segui_plan: form.seguiPlan,
+            notas: form.notas || null,
+        };
+        const { data, error } = await supabase
+            .from("trades")
+            .insert(tradePayload)
+            .select()
+            .single();
+        console.log("tradePayload:", tradePayload);
+        console.log("supabase error:", error);
+        console.log("supabase data:", data);
+        if (error) {
+            console.error("Error guardando trade:", error.message);
+            alert("No se pudo guardar el trade.");
+            return;
+        }
+        const nuevo = {
+            id: data.id,
+            fecha: data.fecha,
+            sesion: data.sesion,
+            direccion: data.direccion,
+            entrada: (_a = data.entrada) !== null && _a !== void 0 ? _a : "",
+            salida: (_b = data.salida) !== null && _b !== void 0 ? _b : "",
+            contratos: String((_c = data.contratos) !== null && _c !== void 0 ? _c : 1),
+            puntosPositivos: data.puntos_positivos !== null && data.puntos_positivos !== undefined
+                ? String(data.puntos_positivos)
+                : "",
+            puntosNegativos: data.puntos_negativos !== null && data.puntos_negativos !== undefined
+                ? String(data.puntos_negativos)
+                : "",
+            resultado: String((_d = data.resultado) !== null && _d !== void 0 ? _d : 0),
+            razon: (_e = data.razon) !== null && _e !== void 0 ? _e : "",
+            emocion: (_f = data.emocion) !== null && _f !== void 0 ? _f : "neutral",
+            seguiPlan: (_g = data.segui_plan) !== null && _g !== void 0 ? _g : "si",
+            notas: (_h = data.notas) !== null && _h !== void 0 ? _h : "",
+            pnl: Number((_k = (_j = data.pnl) !== null && _j !== void 0 ? _j : data.resultado) !== null && _k !== void 0 ? _k : 0),
+        };
+        setTrades((prev) => [nuevo, ...prev]);
         setForm(Object.assign(Object.assign({}, defaultForm), { fecha: form.fecha }));
         setGuardado(true);
         setTimeout(() => setGuardado(false), 1800);
@@ -446,7 +529,15 @@ export default function TradingJournal({ user }) {
             }, 120);
         }
     };
-    const eliminar = (id) => guardar(trades.filter((t) => t.id !== id));
+    const eliminar = async (id) => {
+        const { error } = await supabase.from("trades").delete().eq("id", id);
+        if (error) {
+            console.error("Error eliminando trade:", error.message);
+            alert("No se pudo eliminar el trade.");
+            return;
+        }
+        setTrades((prev) => prev.filter((t) => t.id !== id));
+    };
     const weekTrades = trades.filter((t) => getWeekStart(t.fecha) === selectedWeek);
     const weekPnl = weekTrades.reduce((a, b) => a + b.pnl, 0);
     const weekWinners = weekTrades.filter((t) => t.pnl > 0).length;
@@ -463,8 +554,7 @@ export default function TradingJournal({ user }) {
     weekTrades.forEach((t) => {
         emocionCount[t.emocion] = (emocionCount[t.emocion] || 0) + 1;
     });
-    const topEmocion = Object.entries(emocionCount)
-        .sort((a, b) => b[1] - a[1])[0];
+    const topEmocion = Object.entries(emocionCount).sort((a, b) => b[1] - a[1])[0];
     const emocionRanking = Object.entries(emocionPnl)
         .map(([em, data]) => ({
         emocion: em,

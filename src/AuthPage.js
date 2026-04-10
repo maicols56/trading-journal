@@ -28,9 +28,7 @@ export default function AuthPage() {
     const [message, setMessage] = useState("");
     const [errorText, setErrorText] = useState("");
     const [showPassword, setShowPassword] = useState(false);
-    const title = useMemo(() => mode === "signin"
-        ? "Bienvenido de vuelta"
-        : "Crea tu cuenta de trader", [mode]);
+    const title = useMemo(() => mode === "signin" ? "Bienvenido de vuelta" : "Crea tu cuenta de trader", [mode]);
     const subtitle = useMemo(() => mode === "signin"
         ? "Entra a tu bitácora y sigue ejecutando con disciplina."
         : "Empieza a registrar tus trades, emociones y progreso en un entorno serio.", [mode]);
@@ -56,17 +54,22 @@ export default function AuthPage() {
             return;
         setLoading(true);
         setErrorText("");
-        setMessage("");
-        const { error } = await supabase.auth.signUp({
+        const { data, error } = await supabase.auth.signUp({
             email: email.trim(),
             password,
         });
         setLoading(false);
+        // 🔴 ERROR real
         if (error) {
             setErrorText(error.message);
             return;
         }
-        setMessage("Cuenta creada. Revisa tu correo para confirmar el acceso si Supabase lo solicita.");
+        // 🧠 AQUÍ está el truco
+        if (!data.session) {
+            setErrorText("Este correo ya está registrado. Intenta iniciar sesión.");
+            return;
+        }
+        alert("Cuenta creada correctamente");
     };
     const signIn = async () => {
         if (!validate())
@@ -393,9 +396,7 @@ export default function AuthPage() {
                                 background: loading
                                     ? "rgba(255,255,255,0.08)"
                                     : "linear-gradient(135deg, #8b5cf6, #22d3ee)",
-                                boxShadow: loading
-                                    ? "none"
-                                    : "0 14px 34px rgba(124,58,237,0.24)",
+                                boxShadow: loading ? "none" : "0 14px 34px rgba(124,58,237,0.24)",
                                 transition: "all 0.2s ease",
                                 opacity: loading ? 0.7 : 1,
                             }, children: loading

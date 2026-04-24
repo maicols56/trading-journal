@@ -11,6 +11,7 @@ var __rest = (this && this.__rest) || function (s, e) {
 };
 import { jsx as _jsx, jsxs as _jsxs, Fragment as _Fragment } from "react/jsx-runtime";
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "./lib/supabase";
 const DAILY_RISK_STORAGE_KEY = "mnq_daily_risk_v1";
 const EVALUATION_TARGET_STORAGE_KEY = "mnq_evaluation_target_v1";
@@ -28,6 +29,7 @@ const defaultForm = {
     razon: "",
     emocion: "neutral",
     seguiPlan: "si",
+    malasPracticas: [],
     notas: "",
 };
 const defaultHabits = {
@@ -92,6 +94,50 @@ const razones = [
     "💥 Punto de ruptura",
     "🧱 Estructura",
 ];
+const malasPracticasOptions = [
+    "Moví mi stop loss más lejos",
+    "Quité el stop loss",
+    "Entré sin confirmación",
+    "Entré tarde (FOMO)",
+    "Entré antes de tiempo",
+    "Entré fuera de mi zona",
+    "Entré sin ver el contexto (tendencia / estructura)",
+];
+const MALAS_PRACTICAS_PREFIX = "__BAD_PRACTICES__=";
+function parseStoredNotes(rawNotes) {
+    const source = typeof rawNotes === "string" ? rawNotes : rawNotes !== null && rawNotes !== void 0 ? rawNotes : "";
+    const markerIndex = source.indexOf(MALAS_PRACTICAS_PREFIX);
+    if (markerIndex === -1) {
+        return {
+            notas: source.trim(),
+            malasPracticas: [],
+        };
+    }
+    const notas = source.slice(0, markerIndex).trim();
+    const encoded = source.slice(markerIndex + MALAS_PRACTICAS_PREFIX.length).trim();
+    try {
+        const parsed = JSON.parse(encoded);
+        return {
+            notas,
+            malasPracticas: Array.isArray(parsed) ? parsed : [],
+        };
+    }
+    catch (error) {
+        return {
+            notas: source.trim(),
+            malasPracticas: [],
+        };
+    }
+}
+function buildStoredNotes(notas, malasPracticas) {
+    const cleanNotes = (notas || "").trim();
+    const cleanPractices = Array.isArray(malasPracticas)
+        ? malasPracticas.filter(Boolean)
+        : [];
+    if (!cleanPractices.length)
+        return cleanNotes;
+    return `${cleanNotes ? `${cleanNotes}\n\n` : ""}${MALAS_PRACTICAS_PREFIX}${JSON.stringify(cleanPractices)}`;
+}
 const emocionZonaMap = {
     ansioso: "rojo",
     miedoso: "rojo",
@@ -179,6 +225,52 @@ const mensajesPorZona = {
         "🟢 Controla la emoción. Protege lo ganado.",
     ],
 };
+const homeWelcomeMessages = [
+    "👋 Bienvenido. Tómate un tiempo para entrar en este espacio con calma.",
+    "🌅 Cada mañana trae una nueva oportunidad para hacerlo mejor.",
+    "✨ Estás respirando, estás aquí y eso ya es una bendición.",
+    "🧠 Hoy no vienes a correr. Hoy vienes a pensar claro y actuar bien.",
+    "🙏 Agradece este momento. Tu nueva vida se construye desde decisiones pequeñas.",
+];
+const homeMotivationMessages = [
+    "💭 No estás aquí para ganar cada trade, estás aquí para ejecutar bien tu sistema una y otra vez. Si haces eso, las ganancias llegan solas con el tiempo.",
+    "⚖️ El mercado no es un lugar para demostrar que tienes razón. Es un lugar para gestionar riesgo. Si entras con ego, sales con pérdidas.",
+    "🧠 Cada vez que rompes tu plan, estás enseñándole a tu mente que la indisciplina está permitida. Y eso, tarde o temprano, te cuesta dinero.",
+    "🎯 No necesitas más indicadores, necesitas más control emocional. El problema no es la estrategia… eres tú ejecutándola.",
+    "💥 Una operación no define tu día. Pero una mala decisión emocional sí puede destruir tu cuenta.",
+    "😌 Si sientes ansiedad antes de entrar, probablemente no es una buena entrada. La claridad se siente tranquila, no desesperada.",
+    "⏳ El dinero en trading se hace esperando. No operando constantemente. Aprende a aburrirte sin perder disciplina.",
+    "🚫 El FOMO te hace entrar tarde, el miedo te hace salir temprano. Si no controlas eso, el mercado siempre te va a cobrar.",
+    "✅ El mejor trade muchas veces es el que decides no tomar. No todo movimiento es una oportunidad para ti.",
+    "🛑 Si necesitas recuperar pérdidas rápido, ya estás pensando mal. El mercado no se recupera… se respeta.",
+];
+const homeAdviceMessages = [
+    "🎯 Hoy no opero por venganza.",
+    "📋 Hoy respeto mi plan.",
+    "🧘 Hoy espero contexto antes de entrar.",
+    "👁️ Hoy busco claridad, no emoción.",
+    "💡 Hoy doy un paso más hacia la vida que quiero.",
+    "📈 Hoy soy mejor que ayer.",
+    "🔥 Hoy soy el trader que soñé.",
+];
+const homeChecklistItems = [
+    { key: "noRevenge", label: "Hoy no opero por venganza" },
+    { key: "doRight", label: "Hoy vengo a hacer lo correcto" },
+    { key: "oneStepCloser", label: "Hoy daré un paso más hacia la vida que quiero" },
+    { key: "respectPlan", label: "Hoy respetaré mi plan" },
+    { key: "betterThanYesterday", label: "Hoy soy mejor que ayer" },
+    { key: "dreamTrader", label: "Hoy soy el trader que soñé" },
+];
+function getSeededMessage(messages, seed) {
+    if (!Array.isArray(messages) || !messages.length)
+        return "";
+    let hash = 0;
+    const input = String(seed || "0");
+    for (let i = 0; i < input.length; i += 1) {
+        hash = (hash * 31 + input.charCodeAt(i)) >>> 0;
+    }
+    return messages[hash % messages.length];
+}
 const emocionPnl = {};
 const razonStats = {};
 function getWeekStart(date) {
@@ -257,11 +349,11 @@ function getRecoveryInfo(series) {
     return null;
 }
 export default function TradingJournal({ user }) {
-    var _a, _b;
+    var _a, _b, _c, _d;
     const [mensajeActual, setMensajeActual] = useState("");
     const [trades, setTrades] = useState([]);
     const [form, setForm] = useState(defaultForm);
-    const [vista, setVista] = useState("registro");
+    const [vista, setVista] = useState("inicio");
     const [semaforo, setSemaforo] = useState("verde");
     const [guardado, setGuardado] = useState(false);
     const [aiAnalysis, setAiAnalysis] = useState("");
@@ -270,6 +362,14 @@ export default function TradingJournal({ user }) {
     const [dailyRisk, setDailyRisk] = useState({});
     const [evaluationTarget, setEvaluationTarget] = useState(1250);
     const [habits, setHabits] = useState({});
+    const [homeChecklist, setHomeChecklist] = useState({
+        noRevenge: false,
+        doRight: false,
+        oneStepCloser: false,
+        respectPlan: false,
+        betterThanYesterday: false,
+        dreamTrader: false,
+    });
     useEffect(() => {
         if (!trades.length)
             return;
@@ -302,8 +402,9 @@ export default function TradingJournal({ user }) {
                 return;
             }
             const mappedTrades = (data || []).map((t) => {
-                var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
-                return ({
+                var _a, _b, _c, _d, _e, _f, _g, _h, _j;
+                const parsedNotes = parseStoredNotes(t.notas);
+                return {
                     id: t.id,
                     fecha: t.fecha,
                     sesion: t.sesion,
@@ -321,9 +422,10 @@ export default function TradingJournal({ user }) {
                     razon: (_e = t.razon) !== null && _e !== void 0 ? _e : "",
                     emocion: (_f = t.emocion) !== null && _f !== void 0 ? _f : "neutral",
                     seguiPlan: (_g = t.segui_plan) !== null && _g !== void 0 ? _g : "si",
-                    notas: (_h = t.notas) !== null && _h !== void 0 ? _h : "",
-                    pnl: Number((_k = (_j = t.pnl) !== null && _j !== void 0 ? _j : t.resultado) !== null && _k !== void 0 ? _k : 0),
-                });
+                    malasPracticas: parsedNotes.malasPracticas,
+                    notas: parsedNotes.notas,
+                    pnl: Number((_j = (_h = t.pnl) !== null && _h !== void 0 ? _h : t.resultado) !== null && _j !== void 0 ? _j : 0),
+                };
             });
             setTrades(mappedTrades);
         };
@@ -399,6 +501,15 @@ export default function TradingJournal({ user }) {
         return (pos - neg) * cont * 2;
     };
     const f = (v) => setForm((p) => (Object.assign(Object.assign({}, p), v)));
+    const toggleMalaPractica = (item) => {
+        setForm((prev) => {
+            const current = prev.malasPracticas || [];
+            const exists = current.includes(item);
+            return Object.assign(Object.assign({}, prev), { malasPracticas: exists
+                    ? current.filter((value) => value !== item)
+                    : [...current, item] });
+        });
+    };
     const actualizarPuntosYResultado = (campo, value) => {
         setForm((prev) => {
             const nextValue = getNumericValue(value);
@@ -449,7 +560,7 @@ export default function TradingJournal({ user }) {
         }
     }, [pnlHoy, riesgoBaseHoy]);
     const agregarTrade = async () => {
-        var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k;
+        var _a, _b, _c, _d, _e, _f, _g, _h, _j;
         if (semaforo === "rojo")
             return;
         if (!(user === null || user === void 0 ? void 0 : user.id)) {
@@ -483,7 +594,7 @@ export default function TradingJournal({ user }) {
             razon: form.razon || null,
             emocion: form.emocion,
             segui_plan: form.seguiPlan,
-            notas: form.notas || null,
+            notas: buildStoredNotes(form.notas, form.malasPracticas) || null,
         };
         const { data, error } = await supabase
             .from("trades")
@@ -498,6 +609,7 @@ export default function TradingJournal({ user }) {
             alert("No se pudo guardar el trade.");
             return;
         }
+        const parsedNewNotes = parseStoredNotes(data.notas);
         const nuevo = {
             id: data.id,
             fecha: data.fecha,
@@ -516,8 +628,9 @@ export default function TradingJournal({ user }) {
             razon: (_e = data.razon) !== null && _e !== void 0 ? _e : "",
             emocion: (_f = data.emocion) !== null && _f !== void 0 ? _f : "neutral",
             seguiPlan: (_g = data.segui_plan) !== null && _g !== void 0 ? _g : "si",
-            notas: (_h = data.notas) !== null && _h !== void 0 ? _h : "",
-            pnl: Number((_k = (_j = data.pnl) !== null && _j !== void 0 ? _j : data.resultado) !== null && _k !== void 0 ? _k : 0),
+            malasPracticas: parsedNewNotes.malasPracticas,
+            notas: parsedNewNotes.notas,
+            pnl: Number((_j = (_h = data.pnl) !== null && _h !== void 0 ? _h : data.resultado) !== null && _j !== void 0 ? _j : 0),
         };
         setTrades((prev) => [nuevo, ...prev]);
         setForm(Object.assign(Object.assign({}, defaultForm), { fecha: form.fecha }));
@@ -601,6 +714,39 @@ export default function TradingJournal({ user }) {
     });
     const mejorSetup = razonRanking[0];
     const peorSetup = razonRanking[razonRanking.length - 1];
+    const badPracticeStats = {};
+    trades.forEach((t) => {
+        const practices = Array.isArray(t.malasPracticas) ? t.malasPracticas : [];
+        practices.forEach((practice) => {
+            if (!badPracticeStats[practice]) {
+                badPracticeStats[practice] = {
+                    count: 0,
+                    totalPnl: 0,
+                    wins: 0,
+                    losses: 0,
+                };
+            }
+            badPracticeStats[practice].count += 1;
+            badPracticeStats[practice].totalPnl += Number(t.pnl || 0);
+            if (Number(t.pnl || 0) > 0)
+                badPracticeStats[practice].wins += 1;
+            if (Number(t.pnl || 0) < 0)
+                badPracticeStats[practice].losses += 1;
+        });
+    });
+    const badPracticeRanking = Object.entries(badPracticeStats)
+        .map(([name, data]) => ({
+        name,
+        count: data.count,
+        totalPnl: data.totalPnl,
+        wins: data.wins,
+        losses: data.losses,
+        lossRate: data.count ? Math.round((data.losses / data.count) * 100) : 0,
+    }))
+        .sort((a, b) => b.count - a.count);
+    const topBadPractice = badPracticeRanking[0];
+    const mostExpensiveBadPractice = [...badPracticeRanking].sort((a, b) => a.totalPnl - b.totalPnl)[0];
+    const mostToxicBadPractice = [...badPracticeRanking].sort((a, b) => b.lossRate - a.lossRate || b.count - a.count)[0];
     const todayHabits = habits[hoy] || defaultHabits;
     const habitList = [
         { key: "dormir", label: "😴 Dormí bien (7-8h)" },
@@ -628,6 +774,24 @@ export default function TradingJournal({ user }) {
     const currentZoneMeta = psychCurrentState
         ? zonaMeta[psychCurrentState]
         : null;
+    const displayName = ((_b = user === null || user === void 0 ? void 0 : user.user_metadata) === null || _b === void 0 ? void 0 : _b.full_name) ||
+        ((_c = user === null || user === void 0 ? void 0 : user.user_metadata) === null || _c === void 0 ? void 0 : _c.name) ||
+        ((user === null || user === void 0 ? void 0 : user.email) ? String(user.email).split("@")[0] : "Trader");
+    const now = new Date();
+    const currentHour = now.getHours();
+    const formattedTime = now.toLocaleTimeString([], {
+        hour: "numeric",
+        minute: "2-digit",
+    });
+    const timeGreeting = currentHour < 12 ? "Buenos días" : currentHour < 19 ? "Buenas tardes" : "Buenas noches";
+    const todaySeed = `${hoy}-${trades.length}-${winRate}-${pnlTotal}`;
+    const homeWelcome = getSeededMessage(homeWelcomeMessages, todaySeed);
+    const homeMotivation = getSeededMessage(homeMotivationMessages, `${todaySeed}-motivation`);
+    const homeAdvice = getSeededMessage(homeAdviceMessages, `${todaySeed}-advice`);
+    const lastTrade = trades[0] || null;
+    const homeMainMessage = "🙏 Bienvenido. Tómate un tiempo para este espacio, agradece que puedes hacer esto cada mañana, estás respirando y tienes una nueva oportunidad.";
+    const homeNeedToHear = "Tu nueva vida te espera, pero solo si haces las cosas bien. Hoy no vienes a impresionar a nadie; hoy vienes a respetarte, a pensar con claridad y a ejecutar con disciplina.";
+    const homeProjectIdea = "Un inicio limpio para centrarte antes de operar: recordar quién quieres ser, qué tienes que hacer hoy y entrar al mercado con la mente en su sitio.";
     const semaforoColor = {
         verde: {
             bg: "linear-gradient(135deg, rgba(34,197,94,0.2), rgba(34,197,94,0.06))",
@@ -647,6 +811,11 @@ export default function TradingJournal({ user }) {
             text: "#ffe2e2",
             label: "🔴 ROJO — No operar hoy",
         },
+    };
+    const navigate = useNavigate();
+    const handleLogout = async () => {
+        await supabase.auth.signOut();
+        navigate("/login");
     };
     const analizarConIA = async () => {
         var _a;
@@ -813,12 +982,30 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                                                     fontWeight: 800,
                                                     color: "#fff",
                                                     boxShadow: "0 12px 30px rgba(124,58,237,0.35), inset 0 1px 0 rgba(255,255,255,0.18)",
-                                                }, children: "\uD83D\uDCC8" }), _jsxs("div", { children: [_jsx("div", { style: {
-                                                            fontSize: "22px",
-                                                            fontWeight: 800,
-                                                            letterSpacing: "-0.02em",
-                                                            color: "#fff",
-                                                        }, children: "MNQ BITACORA" }), _jsx("div", { style: {
+                                                }, children: "\uD83D\uDCC8" }), _jsxs("div", { children: [_jsxs("div", { style: {
+                                                            display: "flex",
+                                                            alignItems: "center",
+                                                            gap: "10px",
+                                                            flexWrap: "wrap",
+                                                        }, children: [_jsx("div", { style: {
+                                                                    fontSize: "22px",
+                                                                    fontWeight: 800,
+                                                                    letterSpacing: "-0.02em",
+                                                                    color: "#fff",
+                                                                }, children: "MNQ BITACORA" }), _jsx("button", { onClick: () => setVista("inicio"), style: {
+                                                                    border: vista === "inicio"
+                                                                        ? "1px solid rgba(255,255,255,0.14)"
+                                                                        : "1px solid rgba(255,255,255,0.08)",
+                                                                    background: vista === "inicio"
+                                                                        ? "rgba(255,255,255,0.08)"
+                                                                        : "rgba(255,255,255,0.03)",
+                                                                    color: "#fff",
+                                                                    borderRadius: "999px",
+                                                                    padding: "8px 12px",
+                                                                    cursor: "pointer",
+                                                                    fontSize: "12px",
+                                                                    fontWeight: 700,
+                                                                }, children: "Inicio" })] }), _jsx("div", { style: {
                                                             marginTop: "4px",
                                                             fontSize: "12px",
                                                             color: theme.textMuted,
@@ -829,46 +1016,55 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                                             gap: "8px",
                                             flexWrap: "wrap",
                                             justifyContent: "flex-end",
-                                        }, children: [_jsx(TopPill, { label: "Win Rate", value: `${winRate}%`, valueColor: winRate >= 50 ? theme.green : theme.yellow }), _jsx(TopPill, { label: "P&L Total", value: `${pnlTotal >= 0 ? "+" : ""}$${pnlTotal.toFixed(0)}`, valueColor: pnlTotal >= 0 ? theme.green : theme.red }), _jsx(TopPill, { label: "Trades", value: trades.length, valueColor: theme.cyan })] })] }), _jsx("div", { style: {
+                                        }, children: [_jsx(TopPill, { label: "Win Rate", value: `${winRate}%`, valueColor: winRate >= 50 ? theme.green : theme.yellow }), _jsx(TopPill, { label: "P&L Total", value: `${pnlTotal >= 0 ? "+" : ""}$${pnlTotal.toFixed(0)}`, valueColor: pnlTotal >= 0 ? theme.green : theme.red }), _jsx(TopPill, { label: "Trades", value: trades.length, valueColor: theme.cyan })] })] }), _jsxs("div", { style: {
                                     display: "flex",
                                     gap: "10px",
                                     marginTop: "18px",
                                     overflowX: "auto",
                                     paddingBottom: "2px",
-                                }, children: [
-                                    ["registro", "✏️ Registrar"],
-                                    ["historial", "📋 Historial"],
-                                    ["semana", "📅 Semana"],
-                                    ["coach", "🤖 Coach IA"],
-                                    ["habitos", "🧠 Hábitos"],
-                                    ["psicologia", "📉 Psicología"],
-                                    ["stats", "📊 Stats"],
-                                ].map(([key, label]) => {
-                                    const active = vista === key;
-                                    return (_jsx("button", { onClick: () => setVista(key), style: {
-                                            border: active
-                                                ? "1px solid rgba(139,92,246,0.45)"
-                                                : "1px solid rgba(148,163,184,0.12)",
-                                            background: active
-                                                ? "linear-gradient(135deg, rgba(139,92,246,0.28), rgba(34,211,238,0.16))"
-                                                : "rgba(255,255,255,0.02)",
-                                            color: active ? "#fff" : theme.textSoft,
-                                            borderRadius: "999px",
-                                            padding: "10px 16px",
+                                }, children: [[
+                                        ["registro", "✏️ Registrar"],
+                                        ["historial", "📋 Historial"],
+                                        ["semana", "📅 Semana"],
+                                        ["coach", "🤖 Coach IA"],
+                                        ["habitos", "🧠 Hábitos"],
+                                        ["psicologia", "📉 Psicología"],
+                                        ["stats", "📊 Stats"],
+                                    ].map(([key, label]) => {
+                                        const active = vista === key;
+                                        return (_jsx("button", { onClick: () => setVista(key), style: {
+                                                border: active
+                                                    ? "1px solid rgba(139,92,246,0.45)"
+                                                    : "1px solid rgba(148,163,184,0.12)",
+                                                background: active
+                                                    ? "linear-gradient(135deg, rgba(139,92,246,0.28), rgba(34,211,238,0.16))"
+                                                    : "rgba(255,255,255,0.02)",
+                                                color: active ? "#fff" : theme.textSoft,
+                                                borderRadius: "999px",
+                                                padding: "10px 16px",
+                                                cursor: "pointer",
+                                                fontSize: "12px",
+                                                fontWeight: 600,
+                                                whiteSpace: "nowrap",
+                                                transition: "all 0.22s ease",
+                                                boxShadow: active
+                                                    ? "0 8px 20px rgba(139,92,246,0.18)"
+                                                    : "none",
+                                            }, children: label }, key));
+                                    }), _jsx("button", { onClick: handleLogout, style: {
+                                            padding: "10px 14px",
+                                            borderRadius: "12px",
+                                            border: "1px solid rgba(255,255,255,0.08)",
+                                            background: "rgba(239,68,68,0.12)",
+                                            color: "#fff",
                                             cursor: "pointer",
                                             fontSize: "12px",
-                                            fontWeight: 600,
-                                            whiteSpace: "nowrap",
-                                            transition: "all 0.22s ease",
-                                            boxShadow: active
-                                                ? "0 8px 20px rgba(139,92,246,0.18)"
-                                                : "none",
-                                        }, children: label }, key));
-                                }) })] }) }) }), _jsxs("div", { style: {
+                                            fontWeight: 700,
+                                        }, children: "\uD83D\uDEAA Logout" })] })] }) }) }), _jsxs("div", { style: {
                     padding: "20px",
                     maxWidth: "920px",
                     margin: "0 auto",
-                }, children: [_jsxs("div", { style: Object.assign(Object.assign({}, cardStyle), { padding: "18px", marginBottom: "18px", background: semaforoColor[semaforo].bg, border: `1px solid ${semaforo === "verde"
+                }, children: [vista !== "inicio" && (_jsxs("div", { style: Object.assign(Object.assign({}, cardStyle), { padding: "18px", marginBottom: "18px", background: semaforoColor[semaforo].bg, border: `1px solid ${semaforo === "verde"
                                 ? "rgba(34,197,94,0.22)"
                                 : semaforo === "amarillo"
                                     ? "rgba(250,204,21,0.22)"
@@ -959,7 +1155,7 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                                                     textTransform: "uppercase",
                                                     marginBottom: "6px",
                                                     textAlign: "right",
-                                                }, children: "Riesgo diario" }), _jsx(SmallInput, { type: "number", min: "1", step: "1", value: (_b = dailyRisk[hoy]) !== null && _b !== void 0 ? _b : 150, onChange: (e) => setRiskForDate(hoy, e.target.value), style: { marginLeft: "auto" } }), _jsxs("div", { style: {
+                                                }, children: "Riesgo diario" }), _jsx(SmallInput, { type: "number", min: "1", step: "1", value: (_d = dailyRisk[hoy]) !== null && _d !== void 0 ? _d : 150, onChange: (e) => setRiskForDate(hoy, e.target.value), style: { marginLeft: "auto" } }), _jsxs("div", { style: {
                                                     fontSize: "12px",
                                                     color: theme.cyan,
                                                     marginTop: "6px",
@@ -996,7 +1192,119 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                                     fontSize: "12px",
                                     color: theme.textMuted,
                                     marginTop: "8px",
-                                }, children: ["Margen restante hoy:", " ", _jsxs("span", { style: { color: "#fff", fontWeight: 700 }, children: ["$", Math.max(0, riesgoBaseHoy + pnlHoy).toFixed(0)] }), " ", "/ $", riesgoBaseHoy, " \u00B7 ", tradesHoy.length, " trade", tradesHoy.length !== 1 ? "s" : ""] })] }), vista === "registro" && (_jsxs("div", { style: Object.assign(Object.assign({}, cardStyle), { padding: "22px" }), children: [_jsx(SectionTitle, { eyebrow: "Nuevo trade", title: "Registra tu ejecuci\u00F3n", subtitle: "Anota lo que hiciste, c\u00F3mo te sent\u00EDas y si respetaste el plan. El mercado no perdona, pero el diario s\u00ED ense\u00F1a." }), _jsxs("div", { style: {
+                                }, children: ["Margen restante hoy:", " ", _jsxs("span", { style: { color: "#fff", fontWeight: 700 }, children: ["$", Math.max(0, riesgoBaseHoy + pnlHoy).toFixed(0)] }), " ", "/ $", riesgoBaseHoy, " \u00B7 ", tradesHoy.length, " trade", tradesHoy.length !== 1 ? "s" : ""] })] })), vista === "inicio" && (_jsxs("div", { style: { display: "grid", gap: "16px" }, children: [_jsxs("div", { style: Object.assign(Object.assign({}, cardStyle), { padding: "26px", background: "rgba(15, 18, 31, 0.88)", border: "1px solid rgba(255,255,255,0.08)" }), children: [_jsxs("div", { style: {
+                                            display: "flex",
+                                            justifyContent: "space-between",
+                                            gap: "12px",
+                                            alignItems: "center",
+                                            flexWrap: "wrap",
+                                            marginBottom: "18px",
+                                        }, children: [_jsx("div", { style: {
+                                                    fontSize: "13px",
+                                                    color: theme.textMuted,
+                                                    letterSpacing: "0.08em",
+                                                    textTransform: "uppercase",
+                                                }, children: timeGreeting }), _jsx("div", { style: {
+                                                    fontSize: "13px",
+                                                    color: theme.textMuted,
+                                                    padding: "8px 12px",
+                                                    borderRadius: "999px",
+                                                    background: "rgba(255,255,255,0.03)",
+                                                    border: "1px solid rgba(255,255,255,0.08)",
+                                                }, children: formattedTime })] }), _jsxs("div", { style: {
+                                            fontSize: "30px",
+                                            lineHeight: 1.08,
+                                            fontWeight: 700,
+                                            color: "#fff",
+                                            letterSpacing: "-0.02em",
+                                            marginBottom: "14px",
+                                        }, children: ["Bienvenido, ", displayName, " \uD83D\uDC4B"] }), _jsxs("div", { style: {
+                                            fontSize: "16px",
+                                            lineHeight: 1.95,
+                                            color: theme.textSoft,
+                                            maxWidth: "820px",
+                                            fontWeight: 400,
+                                        }, children: [homeMainMessage, _jsx("br", {}), _jsx("br", {}), homeNeedToHear] })] }), _jsxs("div", { style: {
+                                    display: "grid",
+                                    gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+                                    gap: "14px",
+                                }, children: [_jsxs("div", { style: Object.assign(Object.assign({}, cardStyle), { padding: "18px", background: "rgba(15, 18, 31, 0.88)", border: "1px solid rgba(255,255,255,0.08)" }), children: [_jsx("div", { style: {
+                                                    fontSize: "11px",
+                                                    color: theme.textMuted,
+                                                    letterSpacing: "0.14em",
+                                                    textTransform: "uppercase",
+                                                    marginBottom: "10px",
+                                                }, children: "\u2728 Mensaje para hoy" }), _jsx("div", { style: {
+                                                    fontSize: "16px",
+                                                    lineHeight: 1.8,
+                                                    color: "#fff",
+                                                    fontWeight: 500,
+                                                }, children: homeMotivation })] }), _jsxs("div", { style: Object.assign(Object.assign({}, cardStyle), { padding: "18px", background: "rgba(15, 18, 31, 0.88)", border: "1px solid rgba(255,255,255,0.08)" }), children: [_jsx("div", { style: {
+                                                    fontSize: "11px",
+                                                    color: theme.textMuted,
+                                                    letterSpacing: "0.14em",
+                                                    textTransform: "uppercase",
+                                                    marginBottom: "10px",
+                                                }, children: "\uD83C\uDFAF Consejo de hoy" }), _jsx("div", { style: {
+                                                    fontSize: "16px",
+                                                    lineHeight: 1.8,
+                                                    color: "#fff",
+                                                    fontWeight: 500,
+                                                    marginBottom: "12px",
+                                                }, children: homeAdvice }), _jsx("div", { style: {
+                                                    fontSize: "13px",
+                                                    lineHeight: 1.75,
+                                                    color: theme.textSoft,
+                                                }, children: homeProjectIdea })] })] }), _jsxs("div", { style: Object.assign(Object.assign({}, cardStyle), { padding: "18px", background: "rgba(15, 18, 31, 0.88)", border: "1px solid rgba(255,255,255,0.08)" }), children: [_jsx("div", { style: {
+                                            fontSize: "11px",
+                                            color: theme.textMuted,
+                                            letterSpacing: "0.14em",
+                                            textTransform: "uppercase",
+                                            marginBottom: "12px",
+                                        }, children: "\u2705 Checklist de hoy" }), _jsx("div", { style: {
+                                            display: "grid",
+                                            gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+                                            gap: "10px",
+                                        }, children: homeChecklistItems.map((item) => (_jsxs("button", { onClick: () => setHomeChecklist((prev) => (Object.assign(Object.assign({}, prev), { [item.key]: !prev[item.key] }))), style: {
+                                                display: "flex",
+                                                alignItems: "center",
+                                                justifyContent: "space-between",
+                                                gap: "12px",
+                                                padding: "13px 14px",
+                                                borderRadius: "14px",
+                                                border: homeChecklist[item.key]
+                                                    ? "1px solid rgba(255,255,255,0.16)"
+                                                    : "1px solid rgba(255,255,255,0.08)",
+                                                background: homeChecklist[item.key]
+                                                    ? "rgba(255,255,255,0.06)"
+                                                    : "rgba(255,255,255,0.03)",
+                                                color: "#fff",
+                                                cursor: "pointer",
+                                                fontSize: "13px",
+                                                textAlign: "left",
+                                            }, children: [_jsx("span", { style: { lineHeight: 1.55 }, children: item.label }), _jsx("span", { style: { fontSize: "16px" }, children: homeChecklist[item.key] ? "☑️" : "⬜" })] }, item.key))) })] }), _jsxs("div", { style: {
+                                    display: "flex",
+                                    flexWrap: "wrap",
+                                    gap: "10px",
+                                }, children: [_jsx("button", { onClick: () => setVista("registro"), style: {
+                                            padding: "12px 16px",
+                                            background: "rgba(255,255,255,0.06)",
+                                            color: "#fff",
+                                            border: "1px solid rgba(255,255,255,0.08)",
+                                            borderRadius: "12px",
+                                            cursor: "pointer",
+                                            fontWeight: 700,
+                                            fontSize: "13px",
+                                        }, children: "Ir a registrar trade" }), _jsx("button", { onClick: () => setVista("stats"), style: {
+                                            padding: "12px 16px",
+                                            background: "rgba(255,255,255,0.03)",
+                                            color: theme.textSoft,
+                                            border: "1px solid rgba(255,255,255,0.08)",
+                                            borderRadius: "12px",
+                                            cursor: "pointer",
+                                            fontWeight: 700,
+                                            fontSize: "13px",
+                                        }, children: "Ver stats" })] })] })), vista === "registro" && (_jsxs("div", { style: Object.assign(Object.assign({}, cardStyle), { padding: "22px" }), children: [_jsx(SectionTitle, { eyebrow: "Nuevo trade", title: "Registra tu ejecuci\u00F3n", subtitle: "Anota lo que hiciste, c\u00F3mo te sent\u00EDas y si respetaste el plan. El mercado no perdona, pero el diario s\u00ED ense\u00F1a." }), _jsxs("div", { style: {
                                     display: "grid",
                                     gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
                                     gap: "14px",
@@ -1016,17 +1324,17 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                                                         cursor: "pointer",
                                                         fontWeight: 700,
                                                         fontSize: "12px",
-                                                    }, children: d === "long" ? "▲ LONG" : "▼ SHORT" }, d))) })] }), _jsxs("div", { children: [_jsx(Label, { children: "PRECIO ENTRADA" }), _jsx(Input, { type: "number", placeholder: "21500", value: form.entrada, onChange: (e) => f({ entrada: e.target.value }) })] }), _jsxs("div", { children: [_jsx(Label, { children: "PRECIO SALIDA" }), _jsx(Input, { type: "number", placeholder: "21540", value: form.salida, onChange: (e) => f({ salida: e.target.value }) })] }), _jsxs("div", { style: {
+                                                    }, children: d === "long" ? "▲ COMPRA" : "▼ VENTA" }, d))) })] }), _jsxs("div", { style: {
                                             display: "flex",
                                             flexDirection: "column",
                                             alignItems: "flex-start",
-                                        }, children: [_jsx(Label, { children: "CONTRATOS MNQ" }), _jsx("div", { style: {
+                                        }, children: [_jsx(Label, { children: "CONTRATOS" }), _jsx("div", { style: {
                                                     marginTop: "6px",
                                                     display: "inline-flex",
                                                     alignItems: "center",
                                                     justifyContent: "center",
                                                     minHeight: "44px",
-                                                }, children: _jsx(SmallInput, { type: "number", min: "1", max: "100", step: "1", placeholder: "1", value: form.contratos, onChange: (e) => actualizarContratos(e.target.value) }) })] }), _jsxs("div", { children: [_jsx(Label, { children: "PUNTOS POSITIVOS" }), _jsx(Input, { type: "number", min: "0", step: "0.25", placeholder: "Ej: 5", value: form.puntosPositivos, onChange: (e) => actualizarPuntosYResultado("puntosPositivos", e.target.value), style: { color: theme.green, fontWeight: 700 } })] }), _jsxs("div", { children: [_jsx(Label, { children: "PUNTOS NEGATIVOS" }), _jsx(Input, { type: "number", min: "0", step: "0.25", placeholder: "Ej: 2", value: form.puntosNegativos, onChange: (e) => actualizarPuntosYResultado("puntosNegativos", e.target.value), style: { color: theme.red, fontWeight: 700 } })] }), _jsxs("div", { children: [_jsx(Label, { children: "RESULTADO ($)" }), _jsx(Input, { type: "number", placeholder: "-50 o +100", value: form.resultado, onChange: (e) => {
+                                                }, children: _jsx(SmallInput, { type: "number", min: "1", max: "100", step: "1", placeholder: "1", value: form.contratos, onChange: (e) => actualizarContratos(e.target.value) }) })] }), _jsxs("div", { children: [_jsx(Label, { children: "RESULTADO ($)" }), _jsx(Input, { type: "number", placeholder: "-50 o +100", value: form.resultado, onChange: (e) => {
                                                     const hayPuntos = (parseFloat(form.puntosPositivos || "0") || 0) > 0 ||
                                                         (parseFloat(form.puntosNegativos || "0") || 0) > 0;
                                                     if (hayPuntos)
@@ -1039,17 +1347,84 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                                                         (parseFloat(form.puntosNegativos || "0") || 0) > 0
                                                         ? 0.9
                                                         : 1,
-                                                } }), _jsx("div", { style: {
-                                                    marginTop: "6px",
-                                                    fontSize: "11px",
-                                                    color: theme.textMuted,
-                                                    lineHeight: 1.5,
-                                                }, children: "Si llenas puntos positivos o negativos, este resultado se calcula solo." })] }), _jsxs("div", { style: { gridColumn: "1/-1" }, children: [_jsx(Label, { children: "RAZ\u00D3N DE ENTRADA" }), _jsx("div", { style: {
+                                                } })] }), _jsxs("div", { style: { gridColumn: "1/-1" }, children: [_jsx(Label, { children: "RAZ\u00D3N DE ENTRADA" }), _jsx("div", { style: {
                                                     display: "flex",
                                                     flexWrap: "wrap",
                                                     gap: "8px",
                                                     marginTop: "8px",
-                                                }, children: razones.map((r) => (_jsx(ChipButton, { active: form.razon === r, activeBg: "linear-gradient(135deg, rgba(34,211,238,0.22), rgba(139,92,246,0.14))", activeBorder: "rgba(34,211,238,0.38)", activeColor: "#fff", onClick: () => f({ razon: r }), children: r }, r))) })] }), _jsxs("div", { style: { gridColumn: "1/-1" }, children: [_jsx(Label, { children: "ESTADO EMOCIONAL" }), _jsx("div", { style: {
+                                                }, children: razones.map((r) => (_jsx(ChipButton, { active: form.razon === r, activeBg: "linear-gradient(135deg, rgba(34,211,238,0.22), rgba(139,92,246,0.14))", activeBorder: "rgba(34,211,238,0.38)", activeColor: "#fff", onClick: () => f({ razon: r }), children: r }, r))) })] }), _jsx("div", { style: { gridColumn: "1/-1" }, children: _jsxs("div", { style: {
+                                                borderRadius: "18px",
+                                                padding: "16px",
+                                                background: "linear-gradient(135deg, rgba(139,92,246,0.12), rgba(34,211,238,0.05))",
+                                                border: "1px solid rgba(139,92,246,0.18)",
+                                            }, children: [_jsxs("div", { style: {
+                                                        display: "flex",
+                                                        justifyContent: "space-between",
+                                                        gap: "12px",
+                                                        flexWrap: "wrap",
+                                                        marginBottom: "12px",
+                                                    }, children: [_jsxs("div", { children: [_jsx(Label, { children: "CHECKLIST DE MALAS PR\u00C1CTICAS" }), _jsx("div", { style: {
+                                                                        marginTop: "6px",
+                                                                        fontSize: "12px",
+                                                                        color: theme.textMuted,
+                                                                        lineHeight: 1.6,
+                                                                    }, children: "Marca los errores que cometiste en este trade. Esto te ayuda a detectar patrones sin ensuciar el registro." })] }), _jsx("div", { style: {
+                                                                padding: "8px 10px",
+                                                                borderRadius: "999px",
+                                                                background: "rgba(255,255,255,0.04)",
+                                                                border: "1px solid rgba(255,255,255,0.08)",
+                                                                color: form.malasPracticas.length ? "#fff" : theme.textMuted,
+                                                                fontSize: "12px",
+                                                                fontWeight: 700,
+                                                                minWidth: "fit-content",
+                                                                height: "fit-content",
+                                                            }, children: form.malasPracticas.length
+                                                                ? `${form.malasPracticas.length} seleccionada${form.malasPracticas.length > 1 ? "s" : ""}`
+                                                                : "Sin errores marcados" })] }), _jsx("div", { style: {
+                                                        display: "grid",
+                                                        gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                                                        gap: "10px",
+                                                    }, children: malasPracticasOptions.map((item) => {
+                                                        const active = form.malasPracticas.includes(item);
+                                                        return (_jsxs("button", { type: "button", onClick: () => toggleMalaPractica(item), style: {
+                                                                display: "flex",
+                                                                alignItems: "center",
+                                                                gap: "10px",
+                                                                textAlign: "left",
+                                                                padding: "12px 14px",
+                                                                borderRadius: "14px",
+                                                                border: active
+                                                                    ? "1px solid rgba(139,92,246,0.45)"
+                                                                    : "1px solid rgba(255,255,255,0.08)",
+                                                                background: active
+                                                                    ? "linear-gradient(135deg, rgba(139,92,246,0.22), rgba(34,211,238,0.12))"
+                                                                    : "rgba(255,255,255,0.03)",
+                                                                color: active ? "#fff" : theme.textSoft,
+                                                                cursor: "pointer",
+                                                                fontSize: "13px",
+                                                                fontWeight: active ? 700 : 500,
+                                                                minHeight: "58px",
+                                                            }, children: [_jsx("span", { style: {
+                                                                        width: "18px",
+                                                                        height: "18px",
+                                                                        flexShrink: 0,
+                                                                        borderRadius: "6px",
+                                                                        border: active
+                                                                            ? "1px solid rgba(139,92,246,0.55)"
+                                                                            : "1px solid rgba(255,255,255,0.18)",
+                                                                        background: active
+                                                                            ? "linear-gradient(135deg, rgba(139,92,246,0.9), rgba(34,211,238,0.9))"
+                                                                            : "transparent",
+                                                                        boxShadow: active
+                                                                            ? "0 0 0 3px rgba(139,92,246,0.14)"
+                                                                            : "none",
+                                                                    } }), _jsx("span", { children: item })] }, item));
+                                                    }) }), form.malasPracticas.length > 0 && (_jsx("div", { style: {
+                                                        display: "flex",
+                                                        flexWrap: "wrap",
+                                                        gap: "8px",
+                                                        marginTop: "14px",
+                                                    }, children: form.malasPracticas.map((item) => (_jsxs(MiniPill, { children: ["\u26A0\uFE0F ", item] }, item))) }))] }) }), _jsxs("div", { style: { gridColumn: "1/-1" }, children: [_jsx(Label, { children: "ESTADO EMOCIONAL" }), _jsx("div", { style: {
                                                     display: "grid",
                                                     gap: "12px",
                                                     marginTop: "8px",
@@ -1174,7 +1549,13 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                                                                     ? "New York"
                                                                     : t.sesion === "asia"
                                                                         ? "Asia"
-                                                                        : t.sesion }), _jsx(Badge, { customColor: t.direccion === "long" ? theme.green : theme.red, children: t.direccion === "long" ? "▲ LONG" : "▼ SHORT" }), _jsxs(Badge, { subtle: true, children: [t.contratos, " MNQ"] }), (t.puntosPositivos || t.puntosNegativos) && (_jsxs(Badge, { subtle: true, children: ["+", t.puntosPositivos || 0, " / -", t.puntosNegativos || 0, " pts"] })), t.razon && _jsx(Badge, { subtle: true, children: t.razon }), _jsx(Badge, { customColor: zonaMeta[getEmotionZone(t.emocion)].color, children: zonaMeta[getEmotionZone(t.emocion)].label })] }), t.notas && (_jsx("div", { style: {
+                                                                        : t.sesion }), _jsx(Badge, { customColor: t.direccion === "long" ? theme.green : theme.red, children: t.direccion === "long" ? "▲ LONG" : "▼ SHORT" }), _jsxs(Badge, { subtle: true, children: [t.contratos, " MNQ"] }), (t.puntosPositivos || t.puntosNegativos) && (_jsxs(Badge, { subtle: true, children: ["+", t.puntosPositivos || 0, " / -", t.puntosNegativos || 0, " pts"] })), t.razon && _jsx(Badge, { subtle: true, children: t.razon }), _jsx(Badge, { customColor: zonaMeta[getEmotionZone(t.emocion)].color, children: zonaMeta[getEmotionZone(t.emocion)].label })] }), Array.isArray(t.malasPracticas) &&
+                                                        t.malasPracticas.length > 0 && (_jsx("div", { style: {
+                                                            display: "flex",
+                                                            flexWrap: "wrap",
+                                                            gap: "8px",
+                                                            marginBottom: t.notas ? "10px" : "12px",
+                                                        }, children: t.malasPracticas.map((item) => (_jsxs(MiniPill, { children: ["\u26A0\uFE0F ", item] }, item))) })), t.notas && (_jsx("div", { style: {
                                                             fontSize: "13px",
                                                             color: theme.textSoft,
                                                             lineHeight: 1.7,
@@ -1563,56 +1944,127 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                                                                         }, children: [item.pnl >= 0 ? "+" : "", "$", item.pnl] }), _jsxs("div", { style: {
                                                                             fontSize: "12px",
                                                                             color: theme.textSoft,
-                                                                        }, children: ["Curva: ", item.acumulado > 0 ? "+" : "", item.acumulado] })] })] }, item.id))) })] })] }))] }) })), vista === "stats" && (_jsxs("div", { children: [_jsx("div", { style: {
-                                    display: "grid",
-                                    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-                                    gap: "12px",
-                                    marginBottom: "14px",
-                                }, children: [
-                                    {
-                                        label: "P&L TOTAL",
-                                        value: `${pnlTotal >= 0 ? "+" : ""}$${pnlTotal.toFixed(0)}`,
-                                        color: pnlTotal >= 0 ? theme.green : theme.red,
-                                    },
-                                    {
-                                        label: "WIN RATE",
-                                        value: `${winRate}%`,
-                                        color: winRate >= 50 ? theme.green : theme.yellow,
-                                    },
-                                    {
-                                        label: "TRADES TOTAL",
-                                        value: trades.length,
-                                        color: theme.cyan,
-                                    },
-                                    {
-                                        label: "P&L HOY",
-                                        value: `${pnlHoy >= 0 ? "+" : ""}$${pnlHoy.toFixed(0)}`,
-                                        color: pnlHoy >= 0 ? theme.green : theme.red,
-                                    },
-                                    { label: "GANADORES", value: ganadores, color: theme.green },
-                                    {
-                                        label: "PERDEDORES",
-                                        value: trades.length - ganadores,
-                                        color: theme.red,
-                                    },
-                                ].map((s) => (_jsx(StatCard, { label: s.label, value: s.value, color: s.color }, s.label))) }), _jsxs("div", { style: {
-                                    display: "grid",
-                                    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                                    gap: "12px",
-                                    marginBottom: "14px",
-                                }, children: [_jsx(InsightCard, { title: "\uD83D\uDD25 Setup m\u00E1s rentable", value: mejorSetup ? mejorSetup.razon : "Sin datos", subValue: mejorSetup
-                                            ? `Promedio: ${mejorSetup.avg >= 0 ? "+" : ""}$${mejorSetup.avg.toFixed(0)} · ${mejorSetup.count} trade${mejorSetup.count !== 1 ? "s" : ""}`
-                                            : "Registra trades con razón", color: theme.green }), _jsx(InsightCard, { title: "\uD83D\uDC80 Setup que m\u00E1s castiga", value: peorSetup ? peorSetup.razon : "Sin datos", subValue: peorSetup
-                                            ? `Promedio: ${peorSetup.avg >= 0 ? "+" : ""}$${peorSetup.avg.toFixed(0)} · ${peorSetup.count} trade${peorSetup.count !== 1 ? "s" : ""}`
-                                            : "Registra trades con razón", color: theme.red }), _jsx(InsightCard, { title: "\uD83D\uDE0E Emoci\u00F3n m\u00E1s rentable", value: mejorEmocion
-                                            ? getEmotionLabel(mejorEmocion.emocion)
-                                            : "Sin datos", subValue: mejorEmocion
-                                            ? `Promedio: ${mejorEmocion.avg >= 0 ? "+" : ""}$${mejorEmocion.avg.toFixed(0)}`
-                                            : "Aún no hay suficiente info", color: theme.green }), _jsx(InsightCard, { title: "\u26A0\uFE0F Emoci\u00F3n m\u00E1s peligrosa", value: peorEmocion
-                                            ? getEmotionLabel(peorEmocion.emocion)
-                                            : "Sin datos", subValue: peorEmocion
-                                            ? `Promedio: ${peorEmocion.avg >= 0 ? "+" : ""}$${peorEmocion.avg.toFixed(0)}`
-                                            : "Aún no hay suficiente info", color: theme.red })] }), _jsxs("div", { style: Object.assign(Object.assign({}, cardStyle), { padding: "18px", marginBottom: "14px", background: "linear-gradient(135deg, rgba(239,68,68,0.12), rgba(239,68,68,0.03))", border: "1px solid rgba(239,68,68,0.24)" }), children: [_jsx("div", { style: {
+                                                                        }, children: ["Curva: ", item.acumulado > 0 ? "+" : "", item.acumulado] })] })] }, item.id))) })] })] }))] }) })), vista === "stats" && (_jsxs("div", { children: [_jsxs("div", { style: Object.assign(Object.assign({}, cardStyle), { padding: "18px", marginBottom: "18px", background: "linear-gradient(135deg, rgba(13,17,30,0.94), rgba(10,13,24,0.9))", border: "1px solid rgba(139, 92, 246, 0.14)", boxShadow: "0 18px 45px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.03)" }), children: [_jsxs("div", { style: { marginBottom: "14px" }, children: [_jsx("div", { style: {
+                                                    fontSize: "11px",
+                                                    color: theme.textMuted,
+                                                    letterSpacing: "0.14em",
+                                                    textTransform: "uppercase",
+                                                    marginBottom: "6px",
+                                                }, children: "Resumen general" }), _jsx("div", { style: {
+                                                    fontSize: "13px",
+                                                    color: theme.textSoft,
+                                                    lineHeight: 1.6,
+                                                }, children: "Tus m\u00E9tricas principales de rendimiento." })] }), _jsx("div", { style: {
+                                            height: "1px",
+                                            width: "100%",
+                                            marginBottom: "14px",
+                                            background: "linear-gradient(90deg, rgba(139,92,246,0), rgba(139,92,246,0.35), rgba(34,211,238,0))",
+                                        } }), _jsx("div", { style: {
+                                            display: "grid",
+                                            gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                                            gap: "12px",
+                                        }, children: [
+                                            {
+                                                label: "P&L TOTAL",
+                                                value: `${pnlTotal >= 0 ? "+" : ""}$${pnlTotal.toFixed(0)}`,
+                                                color: pnlTotal >= 0 ? theme.green : theme.red,
+                                            },
+                                            {
+                                                label: "WIN RATE",
+                                                value: `${winRate}%`,
+                                                color: winRate >= 50 ? theme.green : theme.yellow,
+                                            },
+                                            {
+                                                label: "TRADES TOTAL",
+                                                value: trades.length,
+                                                color: theme.cyan,
+                                            },
+                                            {
+                                                label: "P&L HOY",
+                                                value: `${pnlHoy >= 0 ? "+" : ""}$${pnlHoy.toFixed(0)}`,
+                                                color: pnlHoy >= 0 ? theme.green : theme.red,
+                                            },
+                                            { label: "GANADORES", value: ganadores, color: theme.green },
+                                            {
+                                                label: "PERDEDORES",
+                                                value: trades.length - ganadores,
+                                                color: theme.red,
+                                            },
+                                        ].map((s) => (_jsx(StatCard, { label: s.label, value: s.value, color: s.color }, s.label))) })] }), _jsxs("div", { style: Object.assign(Object.assign({}, cardStyle), { padding: "18px", marginBottom: "18px", background: "linear-gradient(135deg, rgba(13,17,30,0.94), rgba(10,13,24,0.9))", border: "1px solid rgba(139, 92, 246, 0.14)", boxShadow: "0 18px 45px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.03)" }), children: [_jsxs("div", { style: { marginBottom: "14px" }, children: [_jsx("div", { style: {
+                                                    fontSize: "11px",
+                                                    color: theme.textMuted,
+                                                    letterSpacing: "0.14em",
+                                                    textTransform: "uppercase",
+                                                    marginBottom: "6px",
+                                                }, children: "Insights y patrones" }), _jsx("div", { style: {
+                                                    fontSize: "13px",
+                                                    color: theme.textSoft,
+                                                    lineHeight: 1.6,
+                                                }, children: "Aqu\u00ED ves qu\u00E9 setups, emociones y errores est\u00E1n dominando tu operativa." })] }), _jsx("div", { style: {
+                                            height: "1px",
+                                            width: "100%",
+                                            marginBottom: "14px",
+                                            background: "linear-gradient(90deg, rgba(139,92,246,0), rgba(139,92,246,0.35), rgba(34,211,238,0))",
+                                        } }), _jsxs("div", { style: {
+                                            display: "grid",
+                                            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                                            gap: "12px",
+                                            marginBottom: "14px",
+                                        }, children: [_jsx(InsightCard, { title: "\uD83D\uDD25 Setup m\u00E1s rentable", value: mejorSetup ? mejorSetup.razon : "Sin datos", subValue: mejorSetup
+                                                    ? `Promedio: ${mejorSetup.avg >= 0 ? "+" : ""}$${mejorSetup.avg.toFixed(0)} · ${mejorSetup.count} trade${mejorSetup.count !== 1 ? "s" : ""}`
+                                                    : "Registra trades con razón", color: theme.green }), _jsx(InsightCard, { title: "\uD83D\uDC80 Setup que m\u00E1s castiga", value: peorSetup ? peorSetup.razon : "Sin datos", subValue: peorSetup
+                                                    ? `Promedio: ${peorSetup.avg >= 0 ? "+" : ""}$${peorSetup.avg.toFixed(0)} · ${peorSetup.count} trade${peorSetup.count !== 1 ? "s" : ""}`
+                                                    : "Registra trades con razón", color: theme.red }), _jsx(InsightCard, { title: "\uD83D\uDE0E Emoci\u00F3n m\u00E1s rentable", value: mejorEmocion
+                                                    ? getEmotionLabel(mejorEmocion.emocion)
+                                                    : "Sin datos", subValue: mejorEmocion
+                                                    ? `Promedio: ${mejorEmocion.avg >= 0 ? "+" : ""}$${mejorEmocion.avg.toFixed(0)}`
+                                                    : "Aún no hay suficiente info", color: theme.green }), _jsx(InsightCard, { title: "\u26A0\uFE0F Emoci\u00F3n m\u00E1s peligrosa", value: peorEmocion
+                                                    ? getEmotionLabel(peorEmocion.emocion)
+                                                    : "Sin datos", subValue: peorEmocion
+                                                    ? `Promedio: ${peorEmocion.avg >= 0 ? "+" : ""}$${peorEmocion.avg.toFixed(0)}`
+                                                    : "Aún no hay suficiente info", color: theme.red })] }), _jsxs("div", { style: {
+                                            display: "grid",
+                                            gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                                            gap: "12px",
+                                            marginBottom: "14px",
+                                        }, children: [_jsx(InsightCard, { title: "\uD83D\uDEA8 Error m\u00E1s frecuente", value: topBadPractice ? topBadPractice.name : "Sin datos", subValue: topBadPractice
+                                                    ? `${topBadPractice.count} vez${topBadPractice.count !== 1 ? "es" : ""} registrada${topBadPractice.count !== 1 ? "s" : ""}`
+                                                    : "Marca errores en el checklist", color: theme.red }), _jsx(InsightCard, { title: "\uD83D\uDCB8 Error m\u00E1s costoso", value: mostExpensiveBadPractice
+                                                    ? mostExpensiveBadPractice.name
+                                                    : "Sin datos", subValue: mostExpensiveBadPractice
+                                                    ? `${mostExpensiveBadPractice.totalPnl >= 0 ? "+" : ""}$${mostExpensiveBadPractice.totalPnl.toFixed(0)} acumulados`
+                                                    : "Aún no hay suficiente info", color: theme.yellow }), _jsx(InsightCard, { title: "\uD83D\uDCC9 Error m\u00E1s t\u00F3xico", value: mostToxicBadPractice ? mostToxicBadPractice.name : "Sin datos", subValue: mostToxicBadPractice
+                                                    ? `${mostToxicBadPractice.lossRate}% terminó en pérdida`
+                                                    : "Aún no hay suficiente info", color: theme.purple })] }), _jsxs("div", { style: Object.assign(Object.assign({}, cardStyle), { padding: "18px" }), children: [_jsx("div", { style: {
+                                                    fontSize: "11px",
+                                                    color: theme.textMuted,
+                                                    letterSpacing: "0.14em",
+                                                    textTransform: "uppercase",
+                                                    marginBottom: "14px",
+                                                }, children: "Top errores del checklist" }), badPracticeRanking.length > 0 ? (_jsx("div", { style: { display: "grid", gap: "10px" }, children: badPracticeRanking.slice(0, 5).map((item, idx) => (_jsxs("div", { style: {
+                                                        padding: "12px 14px",
+                                                        borderRadius: "14px",
+                                                        background: "rgba(255,255,255,0.03)",
+                                                        border: "1px solid rgba(255,255,255,0.08)",
+                                                        display: "flex",
+                                                        justifyContent: "space-between",
+                                                        gap: "12px",
+                                                        flexWrap: "wrap",
+                                                        alignItems: "center",
+                                                    }, children: [_jsxs("div", { children: [_jsxs("div", { style: {
+                                                                        fontSize: "13px",
+                                                                        fontWeight: 700,
+                                                                        color: "#fff",
+                                                                        marginBottom: "4px",
+                                                                    }, children: ["#", idx + 1, " ", item.name] }), _jsxs("div", { style: {
+                                                                        fontSize: "12px",
+                                                                        color: theme.textMuted,
+                                                                    }, children: [item.count, " vez", item.count !== 1 ? "es" : "", " \u00B7", " ", item.lossRate, "% en p\u00E9rdidas"] })] }), _jsxs("div", { style: {
+                                                                fontSize: "14px",
+                                                                fontWeight: 800,
+                                                                color: item.totalPnl >= 0 ? theme.green : theme.red,
+                                                                fontFamily: '"JetBrains Mono", "SFMono-Regular", Consolas, monospace',
+                                                            }, children: [item.totalPnl >= 0 ? "+" : "", "$", item.totalPnl.toFixed(0)] })] }, item.name))) })) : (_jsx("div", { style: { fontSize: "13px", color: theme.textMuted }, children: "Sin datos a\u00FAn. Empieza a marcar errores en el checklist para ver qu\u00E9 h\u00E1bito te est\u00E1 costando m\u00E1s." }))] })] }), _jsxs("div", { style: Object.assign(Object.assign({}, cardStyle), { padding: "18px", marginBottom: "14px", background: "linear-gradient(135deg, rgba(239,68,68,0.12), rgba(239,68,68,0.03))", border: "1px solid rgba(239,68,68,0.24)" }), children: [_jsx("div", { style: {
                                             fontSize: "11px",
                                             color: "#ffb4b4",
                                             textTransform: "uppercase",

@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "./lib/supabase";
 
 type EmotionPnlStat = {
@@ -34,6 +35,7 @@ const defaultForm = {
   razon: "",
   emocion: "neutral",
   seguiPlan: "si",
+  malasPracticas: [],
   notas: "",
 };
 
@@ -102,6 +104,58 @@ const razones = [
   "💥 Punto de ruptura",
   "🧱 Estructura",
 ];
+
+
+const malasPracticasOptions = [
+  "Moví mi stop loss más lejos",
+  "Quité el stop loss",
+  "Entré sin confirmación",
+  "Entré tarde (FOMO)",
+  "Entré antes de tiempo",
+  "Entré fuera de mi zona",
+  "Entré sin ver el contexto (tendencia / estructura)",
+];
+
+const MALAS_PRACTICAS_PREFIX = "__BAD_PRACTICES__=";
+
+function parseStoredNotes(rawNotes) {
+  const source = typeof rawNotes === "string" ? rawNotes : rawNotes ?? "";
+  const markerIndex = source.indexOf(MALAS_PRACTICAS_PREFIX);
+
+  if (markerIndex === -1) {
+    return {
+      notas: source.trim(),
+      malasPracticas: [],
+    };
+  }
+
+  const notas = source.slice(0, markerIndex).trim();
+  const encoded = source.slice(markerIndex + MALAS_PRACTICAS_PREFIX.length).trim();
+
+  try {
+    const parsed = JSON.parse(encoded);
+    return {
+      notas,
+      malasPracticas: Array.isArray(parsed) ? parsed : [],
+    };
+  } catch (error) {
+    return {
+      notas: source.trim(),
+      malasPracticas: [],
+    };
+  }
+}
+
+function buildStoredNotes(notas, malasPracticas) {
+  const cleanNotes = (notas || "").trim();
+  const cleanPractices = Array.isArray(malasPracticas)
+    ? malasPracticas.filter(Boolean)
+    : [];
+
+  if (!cleanPractices.length) return cleanNotes;
+
+  return `${cleanNotes ? `${cleanNotes}\n\n` : ""}${MALAS_PRACTICAS_PREFIX}${JSON.stringify(cleanPractices)}`;
+}
 
 const emocionZonaMap = {
   ansioso: "rojo",
@@ -195,6 +249,59 @@ const mensajesPorZona = {
     "🟢 Controla la emoción. Protege lo ganado.",
   ],
 };
+
+const homeWelcomeMessages = [
+  "👋 Bienvenido. Tómate un tiempo para entrar en este espacio con calma.",
+  "🌅 Cada mañana trae una nueva oportunidad para hacerlo mejor.",
+  "✨ Estás respirando, estás aquí y eso ya es una bendición.",
+  "🧠 Hoy no vienes a correr. Hoy vienes a pensar claro y actuar bien.",
+  "🙏 Agradece este momento. Tu nueva vida se construye desde decisiones pequeñas.",
+];
+
+const homeMotivationMessages = [
+  "💭 No estás aquí para ganar cada trade, estás aquí para ejecutar bien tu sistema una y otra vez. Si haces eso, las ganancias llegan solas con el tiempo.",
+  "⚖️ El mercado no es un lugar para demostrar que tienes razón. Es un lugar para gestionar riesgo. Si entras con ego, sales con pérdidas.",
+  "🧠 Cada vez que rompes tu plan, estás enseñándole a tu mente que la indisciplina está permitida. Y eso, tarde o temprano, te cuesta dinero.",
+  "🎯 No necesitas más indicadores, necesitas más control emocional. El problema no es la estrategia… eres tú ejecutándola.",
+  "💥 Una operación no define tu día. Pero una mala decisión emocional sí puede destruir tu cuenta.",
+  "😌 Si sientes ansiedad antes de entrar, probablemente no es una buena entrada. La claridad se siente tranquila, no desesperada.",
+  "⏳ El dinero en trading se hace esperando. No operando constantemente. Aprende a aburrirte sin perder disciplina.",
+  "🚫 El FOMO te hace entrar tarde, el miedo te hace salir temprano. Si no controlas eso, el mercado siempre te va a cobrar.",
+  "✅ El mejor trade muchas veces es el que decides no tomar. No todo movimiento es una oportunidad para ti.",
+  "🛑 Si necesitas recuperar pérdidas rápido, ya estás pensando mal. El mercado no se recupera… se respeta.",
+];
+
+const homeAdviceMessages = [
+  "🎯 Hoy no opero por venganza.",
+  "📋 Hoy respeto mi plan.",
+  "🧘 Hoy espero contexto antes de entrar.",
+  "👁️ Hoy busco claridad, no emoción.",
+  "💡 Hoy doy un paso más hacia la vida que quiero.",
+  "📈 Hoy soy mejor que ayer.",
+  "🔥 Hoy soy el trader que soñé.",
+];
+
+const homeChecklistItems = [
+  { key: "noRevenge", label: "Hoy no opero por venganza" },
+  { key: "doRight", label: "Hoy vengo a hacer lo correcto" },
+  { key: "oneStepCloser", label: "Hoy daré un paso más hacia la vida que quiero" },
+  { key: "respectPlan", label: "Hoy respetaré mi plan" },
+  { key: "betterThanYesterday", label: "Hoy soy mejor que ayer" },
+  { key: "dreamTrader", label: "Hoy soy el trader que soñé" },
+];
+
+
+function getSeededMessage(messages, seed) {
+  if (!Array.isArray(messages) || !messages.length) return "";
+  let hash = 0;
+  const input = String(seed || "0");
+
+  for (let i = 0; i < input.length; i += 1) {
+    hash = (hash * 31 + input.charCodeAt(i)) >>> 0;
+  }
+
+  return messages[hash % messages.length];
+}
 
 const emocionPnl: Record<string, EmotionPnlStat> = {};
 const razonStats: Record<string, RazonStat> = {};
@@ -290,7 +397,7 @@ export default function TradingJournal({ user }) {
   const [mensajeActual, setMensajeActual] = useState("");
   const [trades, setTrades] = useState([]);
   const [form, setForm] = useState(defaultForm);
-  const [vista, setVista] = useState("registro");
+  const [vista, setVista] = useState("inicio");
   const [semaforo, setSemaforo] = useState("verde");
   const [guardado, setGuardado] = useState(false);
   const [aiAnalysis, setAiAnalysis] = useState("");
@@ -299,6 +406,14 @@ export default function TradingJournal({ user }) {
   const [dailyRisk, setDailyRisk] = useState({});
   const [evaluationTarget, setEvaluationTarget] = useState(1250);
   const [habits, setHabits] = useState({});
+  const [homeChecklist, setHomeChecklist] = useState({
+    noRevenge: false,
+    doRight: false,
+    oneStepCloser: false,
+    respectPlan: false,
+    betterThanYesterday: false,
+    dreamTrader: false,
+  });
   useEffect(() => {
     if (!trades.length) return;
 
@@ -337,29 +452,34 @@ export default function TradingJournal({ user }) {
         return;
       }
 
-      const mappedTrades = (data || []).map((t) => ({
-        id: t.id,
-        fecha: t.fecha,
-        sesion: t.sesion,
-        direccion: t.direccion,
-        entrada: t.entrada ?? "",
-        salida: t.salida ?? "",
-        contratos: String(t.contratos ?? 1),
-        puntosPositivos:
-          t.puntos_positivos !== null && t.puntos_positivos !== undefined
-            ? String(t.puntos_positivos)
-            : "",
-        puntosNegativos:
-          t.puntos_negativos !== null && t.puntos_negativos !== undefined
-            ? String(t.puntos_negativos)
-            : "",
-        resultado: String(t.resultado ?? 0),
-        razon: t.razon ?? "",
-        emocion: t.emocion ?? "neutral",
-        seguiPlan: t.segui_plan ?? "si",
-        notas: t.notas ?? "",
-        pnl: Number(t.pnl ?? t.resultado ?? 0),
-      }));
+      const mappedTrades = (data || []).map((t) => {
+        const parsedNotes = parseStoredNotes(t.notas);
+
+        return {
+          id: t.id,
+          fecha: t.fecha,
+          sesion: t.sesion,
+          direccion: t.direccion,
+          entrada: t.entrada ?? "",
+          salida: t.salida ?? "",
+          contratos: String(t.contratos ?? 1),
+          puntosPositivos:
+            t.puntos_positivos !== null && t.puntos_positivos !== undefined
+              ? String(t.puntos_positivos)
+              : "",
+          puntosNegativos:
+            t.puntos_negativos !== null && t.puntos_negativos !== undefined
+              ? String(t.puntos_negativos)
+              : "",
+          resultado: String(t.resultado ?? 0),
+          razon: t.razon ?? "",
+          emocion: t.emocion ?? "neutral",
+          seguiPlan: t.segui_plan ?? "si",
+          malasPracticas: parsedNotes.malasPracticas,
+          notas: parsedNotes.notas,
+          pnl: Number(t.pnl ?? t.resultado ?? 0),
+        };
+      });
 
       setTrades(mappedTrades);
     };
@@ -452,6 +572,20 @@ export default function TradingJournal({ user }) {
   };
 
   const f = (v) => setForm((p) => ({ ...p, ...v }));
+
+  const toggleMalaPractica = (item) => {
+    setForm((prev) => {
+      const current = prev.malasPracticas || [];
+      const exists = current.includes(item);
+
+      return {
+        ...prev,
+        malasPracticas: exists
+          ? current.filter((value) => value !== item)
+          : [...current, item],
+      };
+    });
+  };
 
   const actualizarPuntosYResultado = (campo, value) => {
     setForm((prev) => {
@@ -574,7 +708,7 @@ export default function TradingJournal({ user }) {
       razon: form.razon || null,
       emocion: form.emocion,
       segui_plan: form.seguiPlan,
-      notas: form.notas || null,
+      notas: buildStoredNotes(form.notas, form.malasPracticas) || null,
     };
 
     const { data, error } = await supabase
@@ -591,6 +725,8 @@ export default function TradingJournal({ user }) {
       alert("No se pudo guardar el trade.");
       return;
     }
+
+    const parsedNewNotes = parseStoredNotes(data.notas);
 
     const nuevo = {
       id: data.id,
@@ -612,7 +748,8 @@ export default function TradingJournal({ user }) {
       razon: data.razon ?? "",
       emocion: data.emocion ?? "neutral",
       seguiPlan: data.segui_plan ?? "si",
-      notas: data.notas ?? "",
+      malasPracticas: parsedNewNotes.malasPracticas,
+      notas: parsedNewNotes.notas,
       pnl: Number(data.pnl ?? data.resultado ?? 0),
     };
 
@@ -719,6 +856,53 @@ export default function TradingJournal({ user }) {
   const mejorSetup = razonRanking[0];
   const peorSetup = razonRanking[razonRanking.length - 1];
 
+  const badPracticeStats: Record<string, { count: number; totalPnl: number; wins: number; losses: number }> = {};
+  trades.forEach((t) => {
+    const practices = Array.isArray(t.malasPracticas) ? t.malasPracticas : [];
+
+    practices.forEach((practice) => {
+      if (!badPracticeStats[practice]) {
+        badPracticeStats[practice] = {
+          count: 0,
+          totalPnl: 0,
+          wins: 0,
+          losses: 0,
+        };
+      }
+
+      badPracticeStats[practice].count += 1;
+      badPracticeStats[practice].totalPnl += Number(t.pnl || 0);
+
+      if (Number(t.pnl || 0) > 0) badPracticeStats[practice].wins += 1;
+      if (Number(t.pnl || 0) < 0) badPracticeStats[practice].losses += 1;
+    });
+  });
+
+  const badPracticeRanking = (
+    Object.entries(badPracticeStats) as [
+      string,
+      { count: number; totalPnl: number; wins: number; losses: number },
+    ][]
+  )
+    .map(([name, data]) => ({
+      name,
+      count: data.count,
+      totalPnl: data.totalPnl,
+      wins: data.wins,
+      losses: data.losses,
+      lossRate: data.count ? Math.round((data.losses / data.count) * 100) : 0,
+    }))
+    .sort((a, b) => b.count - a.count);
+
+  const topBadPractice = badPracticeRanking[0];
+  const mostExpensiveBadPractice = [...badPracticeRanking].sort(
+    (a, b) => a.totalPnl - b.totalPnl,
+  )[0];
+  const mostToxicBadPractice = [...badPracticeRanking].sort(
+    (a, b) => b.lossRate - a.lossRate || b.count - a.count,
+  )[0];
+
+
   const todayHabits = habits[hoy] || defaultHabits;
   const habitList = [
     { key: "dormir", label: "😴 Dormí bien (7-8h)" },
@@ -750,6 +934,30 @@ export default function TradingJournal({ user }) {
     ? zonaMeta[psychCurrentState]
     : null;
 
+  const displayName =
+    user?.user_metadata?.full_name ||
+    user?.user_metadata?.name ||
+    (user?.email ? String(user.email).split("@")[0] : "Trader");
+  const now = new Date();
+  const currentHour = now.getHours();
+  const formattedTime = now.toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+  const timeGreeting =
+    currentHour < 12 ? "Buenos días" : currentHour < 19 ? "Buenas tardes" : "Buenas noches";
+  const todaySeed = `${hoy}-${trades.length}-${winRate}-${pnlTotal}`;
+  const homeWelcome = getSeededMessage(homeWelcomeMessages, todaySeed);
+  const homeMotivation = getSeededMessage(homeMotivationMessages, `${todaySeed}-motivation`);
+  const homeAdvice = getSeededMessage(homeAdviceMessages, `${todaySeed}-advice`);
+  const lastTrade = trades[0] || null;
+  const homeMainMessage =
+    "🙏 Bienvenido. Tómate un tiempo para este espacio, agradece que puedes hacer esto cada mañana, estás respirando y tienes una nueva oportunidad.";
+  const homeNeedToHear =
+    "Tu nueva vida te espera, pero solo si haces las cosas bien. Hoy no vienes a impresionar a nadie; hoy vienes a respetarte, a pensar con claridad y a ejecutar con disciplina.";
+  const homeProjectIdea =
+    "Un inicio limpio para centrarte antes de operar: recordar quién quieres ser, qué tienes que hacer hoy y entrar al mercado con la mente en su sitio.";
+
   const semaforoColor = {
     verde: {
       bg: "linear-gradient(135deg, rgba(34,197,94,0.2), rgba(34,197,94,0.06))",
@@ -770,6 +978,13 @@ export default function TradingJournal({ user }) {
       label: "🔴 ROJO — No operar hoy",
     },
   };
+
+  const navigate = useNavigate();
+
+const handleLogout = async () => {
+  await supabase.auth.signOut();
+  navigate("/login");
+}
 
   const analizarConIA = async () => {
     if (trades.length < 3) {
@@ -1023,13 +1238,41 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                 <div>
                   <div
                     style={{
-                      fontSize: "22px",
-                      fontWeight: 800,
-                      letterSpacing: "-0.02em",
-                      color: "#fff",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: "10px",
+                      flexWrap: "wrap",
                     }}
                   >
-                    MNQ BITACORA
+                    <div
+                      style={{
+                        fontSize: "22px",
+                        fontWeight: 800,
+                        letterSpacing: "-0.02em",
+                        color: "#fff",
+                      }}
+                    >
+                      MNQ BITACORA
+                    </div>
+                    <button
+                      onClick={() => setVista("inicio")}
+                      style={{
+                        border: vista === "inicio"
+                          ? "1px solid rgba(255,255,255,0.14)"
+                          : "1px solid rgba(255,255,255,0.08)",
+                        background: vista === "inicio"
+                          ? "rgba(255,255,255,0.08)"
+                          : "rgba(255,255,255,0.03)",
+                        color: "#fff",
+                        borderRadius: "999px",
+                        padding: "8px 12px",
+                        cursor: "pointer",
+                        fontSize: "12px",
+                        fontWeight: 700,
+                      }}
+                    >
+                      Inicio
+                    </button>
                   </div>
                   <div
                     style={{
@@ -1118,7 +1361,23 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                   </button>
                 );
               })}
+                 <button
+  onClick={handleLogout}
+  style={{
+    padding: "10px 14px",
+    borderRadius: "12px",
+    border: "1px solid rgba(255,255,255,0.08)",
+    background: "rgba(239,68,68,0.12)",
+    color: "#fff",
+    cursor: "pointer",
+    fontSize: "12px",
+    fontWeight: 700,
+  }}
+>
+  🚪 Logout
+</button>
             </div>
+         
           </div>
         </div>
       </div>
@@ -1130,6 +1389,7 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
           margin: "0 auto",
         }}
       >
+        {vista !== "inicio" && (
         <div
           style={{
             ...cardStyle,
@@ -1395,6 +1655,266 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
           </div>
         </div>
 
+        )}
+
+        {vista === "inicio" && (
+          <div style={{ display: "grid", gap: "16px" }}>
+            <div
+              style={{
+                ...cardStyle,
+                padding: "26px",
+                background: "rgba(15, 18, 31, 0.88)",
+                border: "1px solid rgba(255,255,255,0.08)",
+              }}
+            >
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: "12px",
+                  alignItems: "center",
+                  flexWrap: "wrap",
+                  marginBottom: "18px",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "13px",
+                    color: theme.textMuted,
+                    letterSpacing: "0.08em",
+                    textTransform: "uppercase",
+                  }}
+                >
+                  {timeGreeting}
+                </div>
+
+                <div
+                  style={{
+                    fontSize: "13px",
+                    color: theme.textMuted,
+                    padding: "8px 12px",
+                    borderRadius: "999px",
+                    background: "rgba(255,255,255,0.03)",
+                    border: "1px solid rgba(255,255,255,0.08)",
+                  }}
+                >
+                  {formattedTime}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  fontSize: "30px",
+                  lineHeight: 1.08,
+                  fontWeight: 700,
+                  color: "#fff",
+                  letterSpacing: "-0.02em",
+                  marginBottom: "14px",
+                }}
+              >
+                Bienvenido, {displayName} 👋
+              </div>
+
+              <div
+                style={{
+                  fontSize: "16px",
+                  lineHeight: 1.95,
+                  color: theme.textSoft,
+                  maxWidth: "820px",
+                  fontWeight: 400,
+                }}
+              >
+                {homeMainMessage}
+                <br /><br />
+                {homeNeedToHear}
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+                gap: "14px",
+              }}
+            >
+              <div
+                style={{
+                  ...cardStyle,
+                  padding: "18px",
+                  background: "rgba(15, 18, 31, 0.88)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "11px",
+                    color: theme.textMuted,
+                    letterSpacing: "0.14em",
+                    textTransform: "uppercase",
+                    marginBottom: "10px",
+                  }}
+                >
+                  ✨ Mensaje para hoy
+                </div>
+                <div
+                  style={{
+                    fontSize: "16px",
+                    lineHeight: 1.8,
+                    color: "#fff",
+                    fontWeight: 500,
+                  }}
+                >
+                  {homeMotivation}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  ...cardStyle,
+                  padding: "18px",
+                  background: "rgba(15, 18, 31, 0.88)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: "11px",
+                    color: theme.textMuted,
+                    letterSpacing: "0.14em",
+                    textTransform: "uppercase",
+                    marginBottom: "10px",
+                  }}
+                >
+                  🎯 Consejo de hoy
+                </div>
+                <div
+                  style={{
+                    fontSize: "16px",
+                    lineHeight: 1.8,
+                    color: "#fff",
+                    fontWeight: 500,
+                    marginBottom: "12px",
+                  }}
+                >
+                  {homeAdvice}
+                </div>
+                <div
+                  style={{
+                    fontSize: "13px",
+                    lineHeight: 1.75,
+                    color: theme.textSoft,
+                  }}
+                >
+                  {homeProjectIdea}
+                </div>
+              </div>
+            </div>
+
+            <div
+              style={{
+                ...cardStyle,
+                padding: "18px",
+                background: "rgba(15, 18, 31, 0.88)",
+                border: "1px solid rgba(255,255,255,0.08)",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: "11px",
+                  color: theme.textMuted,
+                  letterSpacing: "0.14em",
+                  textTransform: "uppercase",
+                  marginBottom: "12px",
+                }}
+              >
+                ✅ Checklist de hoy
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))",
+                  gap: "10px",
+                }}
+              >
+                {homeChecklistItems.map((item) => (
+                  <button
+                    key={item.key}
+                    onClick={() =>
+                      setHomeChecklist((prev) => ({
+                        ...prev,
+                        [item.key]: !prev[item.key],
+                      }))
+                    }
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                      gap: "12px",
+                      padding: "13px 14px",
+                      borderRadius: "14px",
+                      border: homeChecklist[item.key]
+                        ? "1px solid rgba(255,255,255,0.16)"
+                        : "1px solid rgba(255,255,255,0.08)",
+                      background: homeChecklist[item.key]
+                        ? "rgba(255,255,255,0.06)"
+                        : "rgba(255,255,255,0.03)",
+                      color: "#fff",
+                      cursor: "pointer",
+                      fontSize: "13px",
+                      textAlign: "left",
+                    }}
+                  >
+                    <span style={{ lineHeight: 1.55 }}>{item.label}</span>
+                    <span style={{ fontSize: "16px" }}>
+                      {homeChecklist[item.key] ? "☑️" : "⬜"}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: "10px",
+              }}
+            >
+              <button
+                onClick={() => setVista("registro")}
+                style={{
+                  padding: "12px 16px",
+                  background: "rgba(255,255,255,0.06)",
+                  color: "#fff",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: "12px",
+                  cursor: "pointer",
+                  fontWeight: 700,
+                  fontSize: "13px",
+                }}
+              >
+                Ir a registrar trade
+              </button>
+              <button
+                onClick={() => setVista("stats")}
+                style={{
+                  padding: "12px 16px",
+                  background: "rgba(255,255,255,0.03)",
+                  color: theme.textSoft,
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: "12px",
+                  cursor: "pointer",
+                  fontWeight: 700,
+                  fontSize: "13px",
+                }}
+              >
+                Ver stats
+              </button>
+            </div>
+          </div>
+        )}
+
         {vista === "registro" && (
           <div style={{ ...cardStyle, padding: "22px" }}>
             <SectionTitle
@@ -1459,31 +1979,15 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                         fontSize: "12px",
                       }}
                     >
-                      {d === "long" ? "▲ LONG" : "▼ SHORT"}
+                      {d === "long" ? "▲ COMPRA" : "▼ VENTA"}
                     </button>
                   ))}
                 </div>
               </div>
 
-              <div>
-                <Label>PRECIO ENTRADA</Label>
-                <Input
-                  type="number"
-                  placeholder="21500"
-                  value={form.entrada}
-                  onChange={(e) => f({ entrada: e.target.value })}
-                />
-              </div>
+              
 
-              <div>
-                <Label>PRECIO SALIDA</Label>
-                <Input
-                  type="number"
-                  placeholder="21540"
-                  value={form.salida}
-                  onChange={(e) => f({ salida: e.target.value })}
-                />
-              </div>
+              
 
               <div
                 style={{
@@ -1492,7 +1996,7 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                   alignItems: "flex-start",
                 }}
               >
-                <Label>CONTRATOS MNQ</Label>
+                <Label>CONTRATOS</Label>
 
                 <div
                   style={{
@@ -1515,41 +2019,8 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                 </div>
               </div>
 
-              <div>
-                <Label>PUNTOS POSITIVOS</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.25"
-                  placeholder="Ej: 5"
-                  value={form.puntosPositivos}
-                  onChange={(e) =>
-                    actualizarPuntosYResultado(
-                      "puntosPositivos",
-                      e.target.value,
-                    )
-                  }
-                  style={{ color: theme.green, fontWeight: 700 }}
-                />
-              </div>
-
-              <div>
-                <Label>PUNTOS NEGATIVOS</Label>
-                <Input
-                  type="number"
-                  min="0"
-                  step="0.25"
-                  placeholder="Ej: 2"
-                  value={form.puntosNegativos}
-                  onChange={(e) =>
-                    actualizarPuntosYResultado(
-                      "puntosNegativos",
-                      e.target.value,
-                    )
-                  }
-                  style={{ color: theme.red, fontWeight: 700 }}
-                />
-              </div>
+              
+              
 
               <div>
                 <Label>RESULTADO ($)</Label>
@@ -1576,17 +2047,7 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                         : 1,
                   }}
                 />
-                <div
-                  style={{
-                    marginTop: "6px",
-                    fontSize: "11px",
-                    color: theme.textMuted,
-                    lineHeight: 1.5,
-                  }}
-                >
-                  Si llenas puntos positivos o negativos, este resultado se
-                  calcula solo.
-                </div>
+                
               </div>
 
               <div style={{ gridColumn: "1/-1" }}>
@@ -1611,6 +2072,133 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                       {r}
                     </ChipButton>
                   ))}
+                </div>
+              </div>
+
+              <div style={{ gridColumn: "1/-1" }}>
+                <div
+                  style={{
+                    borderRadius: "18px",
+                    padding: "16px",
+                    background:
+                      "linear-gradient(135deg, rgba(139,92,246,0.12), rgba(34,211,238,0.05))",
+                    border: "1px solid rgba(139,92,246,0.18)",
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: "12px",
+                      flexWrap: "wrap",
+                      marginBottom: "12px",
+                    }}
+                  >
+                    <div>
+                      <Label>CHECKLIST DE MALAS PRÁCTICAS</Label>
+                      <div
+                        style={{
+                          marginTop: "6px",
+                          fontSize: "12px",
+                          color: theme.textMuted,
+                          lineHeight: 1.6,
+                        }}
+                      >
+                        Marca los errores que cometiste en este trade. Esto te ayuda a detectar patrones sin ensuciar el registro.
+                      </div>
+                    </div>
+
+                    <div
+                      style={{
+                        padding: "8px 10px",
+                        borderRadius: "999px",
+                        background: "rgba(255,255,255,0.04)",
+                        border: "1px solid rgba(255,255,255,0.08)",
+                        color: form.malasPracticas.length ? "#fff" : theme.textMuted,
+                        fontSize: "12px",
+                        fontWeight: 700,
+                        minWidth: "fit-content",
+                        height: "fit-content",
+                      }}
+                    >
+                      {form.malasPracticas.length
+                        ? `${form.malasPracticas.length} seleccionada${form.malasPracticas.length > 1 ? "s" : ""}`
+                        : "Sin errores marcados"}
+                    </div>
+                  </div>
+
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+                      gap: "10px",
+                    }}
+                  >
+                    {malasPracticasOptions.map((item) => {
+                      const active = form.malasPracticas.includes(item);
+
+                      return (
+                        <button
+                          key={item}
+                          type="button"
+                          onClick={() => toggleMalaPractica(item)}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: "10px",
+                            textAlign: "left",
+                            padding: "12px 14px",
+                            borderRadius: "14px",
+                            border: active
+                              ? "1px solid rgba(139,92,246,0.45)"
+                              : "1px solid rgba(255,255,255,0.08)",
+                            background: active
+                              ? "linear-gradient(135deg, rgba(139,92,246,0.22), rgba(34,211,238,0.12))"
+                              : "rgba(255,255,255,0.03)",
+                            color: active ? "#fff" : theme.textSoft,
+                            cursor: "pointer",
+                            fontSize: "13px",
+                            fontWeight: active ? 700 : 500,
+                            minHeight: "58px",
+                          }}
+                        >
+                          <span
+                            style={{
+                              width: "18px",
+                              height: "18px",
+                              flexShrink: 0,
+                              borderRadius: "6px",
+                              border: active
+                                ? "1px solid rgba(139,92,246,0.55)"
+                                : "1px solid rgba(255,255,255,0.18)",
+                              background: active
+                                ? "linear-gradient(135deg, rgba(139,92,246,0.9), rgba(34,211,238,0.9))"
+                                : "transparent",
+                              boxShadow: active
+                                ? "0 0 0 3px rgba(139,92,246,0.14)"
+                                : "none",
+                            }}
+                          />
+                          <span>{item}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {form.malasPracticas.length > 0 && (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexWrap: "wrap",
+                        gap: "8px",
+                        marginTop: "14px",
+                      }}
+                    >
+                      {form.malasPracticas.map((item) => (
+                        <MiniPill key={item}>⚠️ {item}</MiniPill>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1885,6 +2473,22 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
                           {zonaMeta[getEmotionZone(t.emocion)].label}
                         </Badge>
                       </div>
+
+                      {Array.isArray(t.malasPracticas) &&
+                        t.malasPracticas.length > 0 && (
+                          <div
+                            style={{
+                              display: "flex",
+                              flexWrap: "wrap",
+                              gap: "8px",
+                              marginBottom: t.notas ? "10px" : "12px",
+                            }}
+                          >
+                            {t.malasPracticas.map((item) => (
+                              <MiniPill key={item}>⚠️ {item}</MiniPill>
+                            ))}
+                          </div>
+                        )}
 
                       {t.notas && (
                         <div
@@ -2957,120 +3561,344 @@ Sé directo, usa datos concretos de sus trades, habla en español y tutéale.`,
           <div>
             <div
               style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-                gap: "12px",
-                marginBottom: "14px",
+                ...cardStyle,
+                padding: "18px",
+                marginBottom: "18px",
+                background:
+                  "linear-gradient(135deg, rgba(13,17,30,0.94), rgba(10,13,24,0.9))",
+                border: "1px solid rgba(139, 92, 246, 0.14)",
+                boxShadow:
+                  "0 18px 45px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.03)",
               }}
             >
-              {[
-                {
-                  label: "P&L TOTAL",
-                  value: `${pnlTotal >= 0 ? "+" : ""}$${pnlTotal.toFixed(0)}`,
-                  color: pnlTotal >= 0 ? theme.green : theme.red,
-                },
-                {
-                  label: "WIN RATE",
-                  value: `${winRate}%`,
-                  color: winRate >= 50 ? theme.green : theme.yellow,
-                },
-                {
-                  label: "TRADES TOTAL",
-                  value: trades.length,
-                  color: theme.cyan,
-                },
-                {
-                  label: "P&L HOY",
-                  value: `${pnlHoy >= 0 ? "+" : ""}$${pnlHoy.toFixed(0)}`,
-                  color: pnlHoy >= 0 ? theme.green : theme.red,
-                },
-                { label: "GANADORES", value: ganadores, color: theme.green },
-                {
-                  label: "PERDEDORES",
-                  value: trades.length - ganadores,
-                  color: theme.red,
-                },
-              ].map((s) => (
-                <StatCard
-                  key={s.label}
-                  label={s.label}
-                  value={s.value}
-                  color={s.color}
-                />
-              ))}
+              <div style={{ marginBottom: "14px" }}>
+                <div
+                  style={{
+                    fontSize: "11px",
+                    color: theme.textMuted,
+                    letterSpacing: "0.14em",
+                    textTransform: "uppercase",
+                    marginBottom: "6px",
+                  }}
+                >
+                  Resumen general
+                </div>
+
+                <div
+                  style={{
+                    fontSize: "13px",
+                    color: theme.textSoft,
+                    lineHeight: 1.6,
+                  }}
+                >
+                  Tus métricas principales de rendimiento.
+                </div>
+              </div>
+
+              <div
+                style={{
+                  height: "1px",
+                  width: "100%",
+                  marginBottom: "14px",
+                  background:
+                    "linear-gradient(90deg, rgba(139,92,246,0), rgba(139,92,246,0.35), rgba(34,211,238,0))",
+                }}
+              />
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+                  gap: "12px",
+                }}
+              >
+                {[
+                  {
+                    label: "P&L TOTAL",
+                    value: `${pnlTotal >= 0 ? "+" : ""}$${pnlTotal.toFixed(0)}`,
+                    color: pnlTotal >= 0 ? theme.green : theme.red,
+                  },
+                  {
+                    label: "WIN RATE",
+                    value: `${winRate}%`,
+                    color: winRate >= 50 ? theme.green : theme.yellow,
+                  },
+                  {
+                    label: "TRADES TOTAL",
+                    value: trades.length,
+                    color: theme.cyan,
+                  },
+                  {
+                    label: "P&L HOY",
+                    value: `${pnlHoy >= 0 ? "+" : ""}$${pnlHoy.toFixed(0)}`,
+                    color: pnlHoy >= 0 ? theme.green : theme.red,
+                  },
+                  { label: "GANADORES", value: ganadores, color: theme.green },
+                  {
+                    label: "PERDEDORES",
+                    value: trades.length - ganadores,
+                    color: theme.red,
+                  },
+                ].map((s) => (
+                  <StatCard
+                    key={s.label}
+                    label={s.label}
+                    value={s.value}
+                    color={s.color}
+                  />
+                ))}
+              </div>
             </div>
 
             <div
               style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-                gap: "12px",
-                marginBottom: "14px",
+                ...cardStyle,
+                padding: "18px",
+                marginBottom: "18px",
+                background:
+                  "linear-gradient(135deg, rgba(13,17,30,0.94), rgba(10,13,24,0.9))",
+                border: "1px solid rgba(139, 92, 246, 0.14)",
+                boxShadow:
+                  "0 18px 45px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.03)",
               }}
             >
-              <InsightCard
-                title="🔥 Setup más rentable"
-                value={mejorSetup ? mejorSetup.razon : "Sin datos"}
-                subValue={
-                  mejorSetup
-                    ? `Promedio: ${
-                        mejorSetup.avg >= 0 ? "+" : ""
-                      }$${mejorSetup.avg.toFixed(0)} · ${
-                        mejorSetup.count
-                      } trade${mejorSetup.count !== 1 ? "s" : ""}`
-                    : "Registra trades con razón"
-                }
-                color={theme.green}
+              <div style={{ marginBottom: "14px" }}>
+                <div
+                  style={{
+                    fontSize: "11px",
+                    color: theme.textMuted,
+                    letterSpacing: "0.14em",
+                    textTransform: "uppercase",
+                    marginBottom: "6px",
+                  }}
+                >
+                  Insights y patrones
+                </div>
+
+                <div
+                  style={{
+                    fontSize: "13px",
+                    color: theme.textSoft,
+                    lineHeight: 1.6,
+                  }}
+                >
+                  Aquí ves qué setups, emociones y errores están dominando tu operativa.
+                </div>
+              </div>
+
+              <div
+                style={{
+                  height: "1px",
+                  width: "100%",
+                  marginBottom: "14px",
+                  background:
+                    "linear-gradient(90deg, rgba(139,92,246,0), rgba(139,92,246,0.35), rgba(34,211,238,0))",
+                }}
               />
 
-              <InsightCard
-                title="💀 Setup que más castiga"
-                value={peorSetup ? peorSetup.razon : "Sin datos"}
-                subValue={
-                  peorSetup
-                    ? `Promedio: ${
-                        peorSetup.avg >= 0 ? "+" : ""
-                      }$${peorSetup.avg.toFixed(0)} · ${peorSetup.count} trade${
-                        peorSetup.count !== 1 ? "s" : ""
-                      }`
-                    : "Registra trades con razón"
-                }
-                color={theme.red}
-              />
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: "12px",
+                  marginBottom: "14px",
+                }}
+              >
+                <InsightCard
+                  title="🔥 Setup más rentable"
+                  value={mejorSetup ? mejorSetup.razon : "Sin datos"}
+                  subValue={
+                    mejorSetup
+                      ? `Promedio: ${
+                          mejorSetup.avg >= 0 ? "+" : ""
+                        }$${mejorSetup.avg.toFixed(0)} · ${
+                          mejorSetup.count
+                        } trade${mejorSetup.count !== 1 ? "s" : ""}`
+                      : "Registra trades con razón"
+                  }
+                  color={theme.green}
+                />
 
-              <InsightCard
-                title="😎 Emoción más rentable"
-                value={
-                  mejorEmocion
-                    ? getEmotionLabel(mejorEmocion.emocion)
-                    : "Sin datos"
-                }
-                subValue={
-                  mejorEmocion
-                    ? `Promedio: ${
-                        mejorEmocion.avg >= 0 ? "+" : ""
-                      }$${mejorEmocion.avg.toFixed(0)}`
-                    : "Aún no hay suficiente info"
-                }
-                color={theme.green}
-              />
+                <InsightCard
+                  title="💀 Setup que más castiga"
+                  value={peorSetup ? peorSetup.razon : "Sin datos"}
+                  subValue={
+                    peorSetup
+                      ? `Promedio: ${
+                          peorSetup.avg >= 0 ? "+" : ""
+                        }$${peorSetup.avg.toFixed(0)} · ${peorSetup.count} trade${
+                          peorSetup.count !== 1 ? "s" : ""
+                        }`
+                      : "Registra trades con razón"
+                  }
+                  color={theme.red}
+                />
 
-              <InsightCard
-                title="⚠️ Emoción más peligrosa"
-                value={
-                  peorEmocion
-                    ? getEmotionLabel(peorEmocion.emocion)
-                    : "Sin datos"
-                }
-                subValue={
-                  peorEmocion
-                    ? `Promedio: ${
-                        peorEmocion.avg >= 0 ? "+" : ""
-                      }$${peorEmocion.avg.toFixed(0)}`
-                    : "Aún no hay suficiente info"
-                }
-                color={theme.red}
-              />
+                <InsightCard
+                  title="😎 Emoción más rentable"
+                  value={
+                    mejorEmocion
+                      ? getEmotionLabel(mejorEmocion.emocion)
+                      : "Sin datos"
+                  }
+                  subValue={
+                    mejorEmocion
+                      ? `Promedio: ${
+                          mejorEmocion.avg >= 0 ? "+" : ""
+                        }$${mejorEmocion.avg.toFixed(0)}`
+                      : "Aún no hay suficiente info"
+                  }
+                  color={theme.green}
+                />
+
+                <InsightCard
+                  title="⚠️ Emoción más peligrosa"
+                  value={
+                    peorEmocion
+                      ? getEmotionLabel(peorEmocion.emocion)
+                      : "Sin datos"
+                  }
+                  subValue={
+                    peorEmocion
+                      ? `Promedio: ${
+                          peorEmocion.avg >= 0 ? "+" : ""
+                        }$${peorEmocion.avg.toFixed(0)}`
+                      : "Aún no hay suficiente info"
+                  }
+                  color={theme.red}
+                />
+              </div>
+
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+                  gap: "12px",
+                  marginBottom: "14px",
+                }}
+              >
+                <InsightCard
+                  title="🚨 Error más frecuente"
+                  value={topBadPractice ? topBadPractice.name : "Sin datos"}
+                  subValue={
+                    topBadPractice
+                      ? `${topBadPractice.count} vez${
+                          topBadPractice.count !== 1 ? "es" : ""
+                        } registrada${
+                          topBadPractice.count !== 1 ? "s" : ""
+                        }`
+                      : "Marca errores en el checklist"
+                  }
+                  color={theme.red}
+                />
+
+                <InsightCard
+                  title="💸 Error más costoso"
+                  value={
+                    mostExpensiveBadPractice
+                      ? mostExpensiveBadPractice.name
+                      : "Sin datos"
+                  }
+                  subValue={
+                    mostExpensiveBadPractice
+                      ? `${mostExpensiveBadPractice.totalPnl >= 0 ? "+" : ""}$${mostExpensiveBadPractice.totalPnl.toFixed(
+                          0,
+                        )} acumulados`
+                      : "Aún no hay suficiente info"
+                  }
+                  color={theme.yellow}
+                />
+
+                <InsightCard
+                  title="📉 Error más tóxico"
+                  value={
+                    mostToxicBadPractice ? mostToxicBadPractice.name : "Sin datos"
+                  }
+                  subValue={
+                    mostToxicBadPractice
+                      ? `${mostToxicBadPractice.lossRate}% terminó en pérdida`
+                      : "Aún no hay suficiente info"
+                  }
+                  color={theme.purple}
+                />
+              </div>
+
+              <div
+                style={{ ...cardStyle, padding: "18px" }}
+              >
+                <div
+                  style={{
+                    fontSize: "11px",
+                    color: theme.textMuted,
+                    letterSpacing: "0.14em",
+                    textTransform: "uppercase",
+                    marginBottom: "14px",
+                  }}
+                >
+                  Top errores del checklist
+                </div>
+
+                {badPracticeRanking.length > 0 ? (
+                  <div style={{ display: "grid", gap: "10px" }}>
+                    {badPracticeRanking.slice(0, 5).map((item, idx) => (
+                      <div
+                        key={item.name}
+                        style={{
+                          padding: "12px 14px",
+                          borderRadius: "14px",
+                          background: "rgba(255,255,255,0.03)",
+                          border: "1px solid rgba(255,255,255,0.08)",
+                          display: "flex",
+                          justifyContent: "space-between",
+                          gap: "12px",
+                          flexWrap: "wrap",
+                          alignItems: "center",
+                        }}
+                      >
+                        <div>
+                          <div
+                            style={{
+                              fontSize: "13px",
+                              fontWeight: 700,
+                              color: "#fff",
+                              marginBottom: "4px",
+                            }}
+                          >
+                            #{idx + 1} {item.name}
+                          </div>
+                          <div
+                            style={{
+                              fontSize: "12px",
+                              color: theme.textMuted,
+                            }}
+                          >
+                            {item.count} vez{item.count !== 1 ? "es" : ""} ·{" "}
+                            {item.lossRate}% en pérdidas
+                          </div>
+                        </div>
+
+                        <div
+                          style={{
+                            fontSize: "14px",
+                            fontWeight: 800,
+                            color: item.totalPnl >= 0 ? theme.green : theme.red,
+                            fontFamily:
+                              '"JetBrains Mono", "SFMono-Regular", Consolas, monospace',
+                          }}
+                        >
+                          {item.totalPnl >= 0 ? "+" : ""}${
+                            item.totalPnl.toFixed(0)
+                          }
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ fontSize: "13px", color: theme.textMuted }}>
+                    Sin datos aún. Empieza a marcar errores en el checklist para ver qué hábito te está costando más.
+                  </div>
+                )}
+              </div>
             </div>
 
             <div
@@ -3890,6 +4718,7 @@ function EmotionChart({ series }) {
       areaBottom: "rgba(34,197,94,0.02)",
     },
   };
+
 
   const lineColor = zonaStyles[averageZona].line;
   const glowColor = zonaStyles[averageZona].glow;
